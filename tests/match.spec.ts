@@ -29,6 +29,9 @@ test('two players see a capture, a countdown, and a SHIFT in the library', async
   await move('g8','f6','Lượt Trắng');
   await expect(page.locator('#event')).toContainText('a8 ↔ b8');
   await expect(page.locator('#event')).toContainText('Còn 2 nước');
+  await page.getByRole('button',{name:'Switch to English'}).click();
+  await expect(page.locator('#event')).toContainText('2 moves left');
+  await page.getByRole('button',{name:'Chuyển sang tiếng Việt'}).click();
   await page.screenshot({ path:testInfo.outputPath('library.png') });
   await move('g1','f3','Lượt Đen');
   await expect(page.locator('#event')).toContainText('Còn 1 nước');

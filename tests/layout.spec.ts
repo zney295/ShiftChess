@@ -22,6 +22,11 @@ test('click the piece and destination, then continue on a compact screen', async
   await page.goto('/');
   await fitsScreen(page,['#start','#mode']);
   await expect(page.locator('canvas')).toHaveCount(0);
+  await page.getByRole('button',{name:'Switch to English'}).click();
+  await expect(page.getByRole('button',{name:'Start',exact:true})).toBeVisible();
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang','en');
+  await page.getByRole('button',{name:'Chuyển sang tiếng Việt'}).click();
   await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
   await expect(page.locator('#start-screen')).toBeHidden();
   await expect(page.getByRole('heading',{name:'Quay sự kiện'})).toBeVisible();
@@ -59,17 +64,19 @@ test('click the piece and destination, then continue on a compact screen', async
   await expect(page.locator('#turn')).toHaveText('Lượt Đen');
   await page.getByRole('button',{name:'Toàn bàn'}).click();
   await expect(page.getByRole('button',{name:'Nhập vai'})).toBeVisible();
+  await page.getByRole('button',{name:'Switch to English'}).click();
+  await expect(page.locator('#turn')).toHaveText('Black to move');
 
   for (const viewport of [{width:360,height:640},{width:320,height:480},{width:667,height:375}]) {
     await page.setViewportSize(viewport);
-    await fitsScreen(page,['canvas','#view','#settings','#event','#piece','#target','#confirm-move']);
+    await fitsScreen(page,['canvas','#view','#settings','#event','#piece','#target','#confirm-move','#locale']);
   }
   await page.locator('#piece').selectOption('e7');
   await page.locator('#target').selectOption('e5');
-  await page.getByRole('button',{name:'Đi',exact:true}).click();
-  await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
+  await page.getByRole('button',{name:'Move',exact:true}).click();
+  await expect(page.locator('#turn')).toHaveText('White to move');
 
-  await page.getByRole('button',{name:'Ván mới'}).click();
+  await page.getByRole('button',{name:'New game'}).click();
   await expect(page.locator('canvas')).toBeHidden();
   await fitsScreen(page,['#start','#mode']);
   await page.setViewportSize({width:320,height:480});

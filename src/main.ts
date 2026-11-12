@@ -1,68 +1,76 @@
-import type { Color, Square } from 'chess.js';
+import type { Square } from 'chess.js';
 import { GameAudio } from './audio';
+import { copy, type CopyKey, type Locale } from './copy';
 import type { Setting } from './models';
-import { effects, effectNames, Match, type Effect, type Mode } from './rules';
+import { effects, Match, type Mode } from './rules';
 import { Stage } from './stage';
 import './style.css';
 
 const host = document.querySelector<HTMLElement>('#app')!;
 host.innerHTML = `
+  <header class="masthead">
+    <div class="wordmark"><span class="crest" aria-hidden="true">♞</span><span>ShiftChess</span></div>
+    <div class="header-controls">
+      <div class="actions" id="play-actions" hidden>
+        <button id="view" type="button"></button>
+        <button id="sound" type="button" aria-pressed="true"></button>
+        <button id="settings" type="button" data-copy="restart"></button>
+      </div>
+      <button id="locale" class="locale" type="button"></button>
+    </div>
+  </header>
   <section id="start-screen" class="menu-screen" aria-labelledby="start-title">
-    <div class="menu-card">
+    <div class="start-shell">
+    <div class="start-art" aria-hidden="true"></div>
+    <div class="start-panel">
       <header>
-        <span class="menu-crest" aria-hidden="true">♞</span>
         <h1 id="start-title">ShiftChess</h1>
-        <p class="muted">Cờ vua 3D cho hai người chơi chung máy.</p>
+        <p class="muted" data-copy="subtitle"></p>
       </header>
       <form id="setup" class="setup">
-        <fieldset><legend>Bối cảnh</legend>
-          <label><input type="radio" name="setting" value="park" checked> Công viên</label>
-          <label><input type="radio" name="setting" value="library"> Thư viện</label>
+        <fieldset class="settings-choices"><legend data-copy="setting"></legend>
+          <label><input type="radio" name="setting" value="park" checked><span data-copy="park"></span></label>
+          <label><input type="radio" name="setting" value="library"><span data-copy="library"></span></label>
         </fieldset>
         <div class="mode-control">
-          <label class="select-label" for="mode">Thời điểm SHIFT</label>
+          <label class="select-label" for="mode" data-copy="timing"></label>
           <select id="mode" name="mode">
-            <option value="periodic">Định kỳ · mỗi 3 vòng</option>
-            <option value="late">Cuối ván · vòng 12</option>
-            <option value="random">Bốc ngẫu nhiên chế độ</option>
+            <option value="periodic" data-copy="periodicOption"></option>
+            <option value="late" data-copy="lateOption"></option>
+            <option value="random" data-copy="randomOption"></option>
           </select>
         </div>
-        <button class="primary" id="start" type="submit">Bắt đầu</button>
+        <button class="primary" id="start" type="submit" data-copy="start"></button>
       </form>
+    </div>
     </div>
   </section>
   <section id="random-screen" class="menu-screen" aria-labelledby="random-title" hidden>
     <div class="menu-card random-card">
-      <header>
-        <h1 id="random-title">Quay sự kiện</h1>
-        <p class="muted" id="random-summary"></p>
-      </header>
+      <div class="random-info">
+        <header>
+          <h1 id="random-title" data-copy="roulette"></h1>
+          <p class="muted" id="random-summary"></p>
+        </header>
+        <output id="roll" aria-live="polite"></output>
+        <p id="roll-detail" class="muted"></p>
+        <div class="menu-actions">
+          <button id="back" type="button" data-copy="back"></button>
+          <button id="spin" class="primary" type="button" data-copy="spin"></button>
+          <button id="enter" class="primary" type="button" data-copy="enter" hidden></button>
+        </div>
+      </div>
       <div class="wheel-wrap" aria-hidden="true">
         <div id="wheel" class="wheel"><b>↔</b><b>→</b><b>⇆</b></div>
         <span class="wheel-needle"></span>
         <span class="wheel-hub">SHIFT</span>
       </div>
-      <output id="roll" aria-live="polite"></output>
-      <p id="roll-detail" class="muted"></p>
-      <div class="menu-actions">
-        <button id="back" type="button">Quay lại</button>
-        <button id="spin" class="primary" type="button">Quay</button>
-        <button id="enter" class="primary" type="button" hidden>Vào ván</button>
-      </div>
     </div>
   </section>
-  <section id="play-screen" class="play-screen" aria-label="Chơi cờ" hidden>
-  <header class="masthead">
-    <div class="wordmark"><span class="crest" aria-hidden="true">♞</span> ShiftChess</div>
-    <div class="actions">
-      <button id="view" type="button">Toàn bàn</button>
-      <button id="sound" type="button" aria-pressed="true">Âm thanh</button>
-      <button id="settings" type="button">Ván mới</button>
-    </div>
-  </header>
+  <section id="play-screen" class="play-screen" data-label="play" hidden>
   <div class="layout">
     <section id="viewport" class="viewport playing">
-      <div class="scene-tag" id="location">Công viên</div>
+      <div class="scene-tag" id="location"></div>
       <div class="flash" id="flash" aria-hidden="true"></div>
     </section>
     <aside class="sidebar">
@@ -71,34 +79,34 @@ host.innerHTML = `
           <div class="turn" id="turn" aria-live="polite"></div>
           <p class="muted" id="rule"></p>
         </div>
-        <section class="event" aria-label="Sự kiện SHIFT">
+        <section class="event" data-label="event">
           <p class="eyebrow">SHIFT</p>
           <p id="event" aria-live="polite"></p>
         </section>
-        <section class="selection" aria-label="Đi quân bằng tọa độ">
+        <section class="selection" data-label="coordinates">
           <div class="piece-control">
-            <label for="piece">Quân đang chọn</label>
-            <select id="piece"><option value="">Chọn quân</option></select>
+            <label for="piece" data-copy="piece"></label>
+            <select id="piece"><option value="" data-copy="pickPiece"></option></select>
           </div>
           <div class="targets" id="targets"></div>
           <form class="target-control" id="compact-move">
-            <label for="target">Ô đến</label>
+            <label for="target" data-copy="target"></label>
             <div>
-              <select id="target"><option value="">Chọn ô</option></select>
-              <button id="confirm-move" type="submit" disabled>Đi</button>
+              <select id="target"><option value="" data-copy="pickTarget"></option></select>
+              <button id="confirm-move" type="submit" data-copy="move" disabled></button>
             </div>
           </form>
         </section>
-        <ol id="log" aria-label="Nước đi gần nhất"></ol>
-        <p class="muted" id="tip">Bấm quân của bên đang đi, rồi bấm ô sáng. Chọn Toàn bàn để thấy đủ bàn cờ.</p>
+        <ol id="log" data-label="recent"></ol>
+        <p class="muted" id="tip" data-copy="tip"></p>
       </div>
     </aside>
   </div>
   </section>
-  <dialog id="promotion"><form method="dialog">
-    <h2>Phong cấp</h2>
-    <div><button value="q">Hậu</button><button value="r">Xe</button>
-      <button value="b">Tượng</button><button value="n">Mã</button></div>
+  <dialog id="promotion" aria-labelledby="promotion-title"><form method="dialog">
+    <h2 id="promotion-title" data-copy="promotion"></h2>
+    <div><button value="q" data-copy="q"></button><button value="r" data-copy="r"></button>
+      <button value="b" data-copy="b"></button><button value="n" data-copy="n"></button></div>
   </form></dialog>
 `;
 
@@ -114,12 +122,12 @@ const wheel=get('wheel'), roll=get('roll'), detail=get('roll-detail');
 const picker=get<HTMLSelectElement>('piece'), targets=get('targets');
 const targetPicker=get<HTMLSelectElement>('target');
 const confirmMove=get<HTMLButtonElement>('confirm-move');
-const pieceNames={ p:'Tốt', n:'Mã', b:'Tượng', r:'Xe', q:'Hậu', k:'Vua' };
-const effectText: Record<Effect,string> = {
-  swap:'Hai ô hoán đổi quân hiện có.',
-  slide:'Quân chuyển sang ô còn trống trong cặp.',
-  double:'Hai cặp ô đổi chỗ cùng lúc.',
-};
+const localeButton=get<HTMLButtonElement>('locale');
+let locale: Locale='vi';
+try {
+  if (localStorage.getItem('shiftchess-language')==='en') locale='en';
+} catch { /* Some embedded players disable storage. */ }
+const t=(key: CopyKey)=>copy[locale][key];
 
 let match: Match | undefined;
 let selected: Square | undefined;
@@ -127,14 +135,21 @@ let overhead=false;
 let busy=false;
 let setting: Setting='park';
 let mode: Mode='periodic';
-let message='';
+let message: CopyKey | undefined;
 let rolledMatch: Match | undefined;
+let rollState: 'waiting' | 'spinning' | 'ready' | 'error' = 'waiting';
 
-const sideName=(side: Color)=>side==='w' ? 'Trắng' : 'Đen';
-const modeName=(mode: Match['mode'])=>mode==='periodic' ? 'Định kỳ' : 'Cuối ván';
-const locationName=(value: Setting)=>value==='park' ? 'Công viên' : 'Thư viện';
+function drawRoulette() {
+  const timing=rollState==='ready' || rollState==='error' ? rolledMatch?.mode : mode;
+  get('random-summary').textContent=t(setting)+' · '+t(!timing || timing==='random' ? 'randomTiming' : timing);
+  roll.textContent=rollState==='spinning' ? t('spinning')
+    : rolledMatch && (rollState==='ready' || rollState==='error') ? t(rolledMatch.effect) : '';
+  detail.textContent=rollState==='error' ? t('webgl')
+    : rollState==='ready' && rolledMatch ? t(`${rolledMatch.effect}Text`)
+    : effects.map(t).join(' · ');
+}
 
-function draw() {
+function draw(keepTarget=false) {
   if (!match) return;
   const {chess,pending,plies,effect}=match;
   const side=chess.turn();
@@ -142,9 +157,11 @@ function draw() {
   const king=chess.isCheck() ? chess.board().flat().find(cell=>cell?.type==='k' && cell.color===side) : undefined;
   const legal=selected && !ended ? chess.moves({square:selected,verbose:true}) : [];
   const squares=[...new Set(legal.map(move=>move.to))];
-  get('turn').textContent=mate ? sideName(side==='w' ? 'b' : 'w')+' thắng' :
-    ended ? 'Hòa' : 'Lượt '+sideName(side)+(king ? ' · Bị chiếu' : '');
-  get('rule').textContent=modeName(match.mode)+' · '+effectNames[effect];
+  get('turn').textContent=mate ? t(side==='w' ? 'blackWins' : 'whiteWins') :
+    ended ? t('draw') : t(side==='w' ? 'whiteTurn' : 'blackTurn')+(king ? ' · '+t('check') : '');
+  get('rule').textContent=t(match.mode)+' · '+t(effect);
+  get('location').textContent=t(setting);
+  stage.canvas.setAttribute('aria-label',t('board'));
   const event=get('event');
   event.replaceChildren();
   if (pending && !ended) {
@@ -155,24 +172,27 @@ function draw() {
       event.append(mark);
     });
     const countdown=document.createElement('span');
-    countdown.textContent='Còn '+(pending.at-plies)+' nước';
+    const remaining=pending.at-plies;
+    countdown.textContent=t(remaining===1 ? 'oneMove' : 'manyMoves').replace('{n}',String(remaining));
     event.append(countdown);
   } else {
-    event.textContent=message || (ended ? 'Ván đã kết thúc.' :
-      match.mode==='late' && plies>=24 ? 'Sự kiện cuối ván đã qua.' : effectText[effect]);
+    event.textContent=t(message ?? (ended ? 'finished' :
+      match.mode==='late' && plies>=24 ? 'lateDone' : `${effect}Text`));
   }
   const possible = new Set(chess.moves({verbose:true}).map(move=>move.from));
-  picker.replaceChildren(new Option('Chọn quân',''));
+  picker.replaceChildren(new Option(t('pickPiece'),''));
   for (const cell of chess.board().flat()) {
     if (cell && cell.color===side && possible.has(cell.square)) {
-      picker.add(new Option(pieceNames[cell.type]+' '+cell.square,cell.square));
+      picker.add(new Option(t(cell.type)+' '+cell.square,cell.square));
     }
   }
   picker.value=selected ?? '';
   picker.disabled=busy || ended;
-  targetPicker.replaceChildren(new Option('Chọn ô',''), ...squares.map(square=>new Option(square,square)));
+  const previousTarget=keepTarget ? targetPicker.value : '';
+  targetPicker.replaceChildren(new Option(t('pickTarget'),''), ...squares.map(square=>new Option(square,square)));
+  targetPicker.value=previousTarget;
   targetPicker.disabled=busy || ended || !squares.length;
-  confirmMove.disabled=true;
+  confirmMove.disabled=targetPicker.disabled || !targetPicker.value;
   targets.replaceChildren();
   for (const square of squares) {
     const button=document.createElement('button');
@@ -184,12 +204,27 @@ function draw() {
   }
   get('log').replaceChildren(...match.log.slice(-8).map(entry=>{
     const li=document.createElement('li');
-    li.textContent=entry;
+    li.textContent=entry==='shift-skipped' ? t('shiftSkippedLog') : entry;
     return li;
   }));
-  view.textContent=overhead ? 'Nhập vai' : 'Toàn bàn';
+  view.textContent=t(overhead ? 'rider' : 'overview');
   view.disabled=settings.disabled=busy;
   stage.indicate(ended ? null : pending,selected,squares,king?.square);
+}
+
+function translate() {
+  document.documentElement.lang=locale;
+  for (const node of host.querySelectorAll<HTMLElement>('[data-copy]')) {
+    node.textContent=t(node.dataset.copy as CopyKey);
+  }
+  for (const node of host.querySelectorAll<HTMLElement>('[data-label]')) {
+    node.setAttribute('aria-label',t(node.dataset.label as CopyKey));
+  }
+  localeButton.textContent=locale==='vi' ? 'EN' : 'VI';
+  localeButton.setAttribute('aria-label',t('switchLanguage'));
+  sound.textContent=t(audio.muted ? 'soundOff' : 'soundOn');
+  drawRoulette();
+  draw(true);
 }
 
 async function promotion() {
@@ -222,20 +257,20 @@ async function choose(square: Square) {
     const upgraded=candidates[0].promotion ? await promotion() : undefined;
     if (candidates[0].promotion && !upgraded) return;
     const move=current.play(from,square,upgraded);
-    message='';
+    message=undefined;
     selected=undefined;
     await stage.move(move,overhead,()=>audio.move(Boolean(move.captured)));
     stage.sync(chess.board());
     const {due,applied,announced}=current.settle();
     if (due && applied) {
-      message='SHIFT đã đổi vị trí.';
+      message='shiftApplied';
       stage.frame(side,undefined,true);
       audio.cue(true);
       get('flash').classList.add('active');
       await stage.shift(due);
       get('flash').classList.remove('active');
       stage.sync(chess.board());
-    } else if (due) message='Bỏ qua SHIFT vì thế cờ hoặc ô đích không hợp lệ.';
+    } else if (due) message='shiftSkipped';
     if (announced) audio.cue();
     stage.frame(chess.turn(),undefined,overhead,!overhead);
   } finally {
@@ -265,7 +300,7 @@ view.addEventListener('click',()=>{
 });
 sound.addEventListener('click',()=>{
   audio.toggle();
-  sound.textContent=audio.muted ? 'Bật âm' : 'Âm thanh';
+  sound.textContent=t(audio.muted ? 'soundOff' : 'soundOn');
   sound.setAttribute('aria-pressed',String(!audio.muted));
 });
 settings.addEventListener('click',()=>{
@@ -279,6 +314,8 @@ settings.addEventListener('click',()=>{
 
 function showScreen(active: keyof typeof screens, focus?: HTMLElement) {
   for (const [name,screen] of Object.entries(screens)) screen.hidden=name!==active;
+  host.dataset.screen=active;
+  get('play-actions').hidden=active!=='play';
   focus?.focus({preventScroll:true});
 }
 
@@ -289,9 +326,8 @@ setup.addEventListener('submit',event=>{
   mode=options.get('mode') as Mode;
   rolledMatch=undefined;
   wheel.style.transform='';
-  roll.textContent='';
-  detail.textContent='Đổi chỗ · Dịch quân · Đổi kép';
-  get('random-summary').textContent=locationName(setting)+' · '+(mode==='random' ? 'Bốc thời điểm' : modeName(mode));
+  rollState='waiting';
+  drawRoulette();
   spin.hidden=spin.disabled=back.disabled=false;
   enter.hidden=true;
   showScreen('random',spin);
@@ -304,15 +340,15 @@ spin.addEventListener('click',async ()=>{
   const effect=effects[index];
   rolledMatch=new Match(mode,effect);
   const end='rotate('+(1080-index*120)+'deg)';
-  roll.textContent='Đang quay…';
+  rollState='spinning';
+  drawRoulette();
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
     await wheel.animate([{transform:'rotate(0deg)'},{transform:end}],
       {duration:1050,easing:'cubic-bezier(.15,.62,.18,1)'}).finished;
   }
   wheel.style.transform=end;
-  roll.textContent=effectNames[effect];
-  detail.textContent=effectText[effect];
-  get('random-summary').textContent=locationName(setting)+' · '+modeName(rolledMatch.mode);
+  rollState='ready';
+  drawRoulette();
   spin.hidden=true;
   enter.hidden=back.disabled=false;
   enter.focus({preventScroll:true});
@@ -326,19 +362,26 @@ enter.addEventListener('click',()=>{
       stage.onSquare=square=>void choose(square);
     } catch {
       showScreen('random',back);
-      detail.textContent='Trình duyệt không khởi tạo được WebGL 2.';
+      rollState='error';
+      drawRoulette();
       return;
     }
   }
   void audio.enable(setting).catch(()=>{});
   match=rolledMatch;
-  message='';
+  message=undefined;
   selected=undefined;
   overhead=false;
-  get('location').textContent=locationName(setting);
   stage.setSetting(setting);
   stage.sync(match.chess.board());
   stage.frame('w',undefined,false,true);
   draw();
   picker.focus({preventScroll:true});
 });
+localeButton.addEventListener('click',()=>{
+  locale=locale==='vi' ? 'en' : 'vi';
+  try { localStorage.setItem('shiftchess-language',locale); } catch { /* Keep the in-memory preference. */ }
+  translate();
+});
+showScreen('start');
+translate();

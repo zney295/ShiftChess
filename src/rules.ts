@@ -5,11 +5,6 @@ export type Effect = 'swap' | 'slide' | 'double';
 export type Pair = [Square, Square];
 export type Shift = { pairs: Pair[]; at: number; effect: Effect };
 export const effects: Effect[] = ['swap', 'slide', 'double'];
-export const effectNames: Record<Effect, string> = {
-  swap: 'Đổi chỗ',
-  slide: 'Dịch quân',
-  double: 'Đổi kép',
-};
 
 const canShift = (piece?: Piece) => piece?.type !== 'k' && piece?.type !== 'p';
 
@@ -137,7 +132,7 @@ export class Match {
         this.chess.load(fen);
         applied = true;
       }
-      this.log.push(applied ? 'SHIFT' : 'Bỏ qua SHIFT');
+      this.log.push(applied ? 'SHIFT' : 'shift-skipped');
     }
     if (terminal || due) this.pending = null;
     if (!terminal && !this.pending) this.pending = this.schedule();
