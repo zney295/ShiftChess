@@ -1,0 +1,24 @@
+{
+  "name": "shiftchess",
+  "version": "1.0.0",
+  "description": "A 3D chess variant for GitHub Game Off 2026",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/rules.test.mjs",
+    "test:browser": "playwright test",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "type": "module",
+  "dependencies": {
+    "chess.js": "^1.4.0",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@types/three": "^0.187.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}
