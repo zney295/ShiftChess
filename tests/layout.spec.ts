@@ -1,0 +1,59 @@
+import { expect, test, type Page } from '@playwright/test';
+import { PerspectiveCamera, Vector3 } from 'three';
+
+async function fitsScreen(page: Page, selectors: string[]) {
+  const {width,height}=page.viewportSize()!;
+  for (const selector of selectors) {
+    const bounds=await page.locator(selector).boundingBox();
+    expect(bounds,selector).not.toBeNull();
+    expect(bounds!.x,selector).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y,selector).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x+bounds!.width,selector).toBeLessThanOrEqual(width+1);
+    expect(bounds!.y+bounds!.height,selector).toBeLessThanOrEqual(height+1);
+  }
+  expect(await page.evaluate(()=>({
+    width:document.scrollingElement!.scrollWidth,
+    height:document.scrollingElement!.scrollHeight,
+  }))).toEqual({width,height});
+}
+
+test('click the piece and destination, then continue on a compact screen', async ({page})=>{
+  await page.setViewportSize({width:1280,height:720});
+  await page.goto('/');
+  await fitsScreen(page,['canvas','#start','#sound']);
+  await page.getByRole('button',{name:'Quay sự kiện và bắt đầu'}).click();
+  await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
+
+  const canvas=(await page.locator('canvas').boundingBox())!;
+  const camera=new PerspectiveCamera(47,canvas.width/canvas.height,.1,80);
+  async function clickWorld(x: number,y: number,z: number) {
+    await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+    camera.updateMatrixWorld();
+    const pos=new Vector3(x,y,z).project(camera);
+    await page.mouse.click(canvas.x+(pos.x+1)*canvas.width/2,canvas.y+(1-pos.y)*canvas.height/2);
+  }
+  camera.position.set(0,5.9,8.65);
+  camera.lookAt(0,.26,0);
+  await clickWorld(.5,.73,2.5); // Head of the pawn on e2.
+  await expect(page.locator('#piece')).toHaveValue('e2');
+  camera.position.set(.465,2.054,5.3);
+  camera.lookAt(.365,.254,.45);
+  await clickWorld(.5,.004,.5); // e4 tile.
+  await expect(page.locator('#turn')).toHaveText('Lượt Đen');
+  await page.getByRole('button',{name:'Toàn bàn'}).click();
+  await expect(page.getByRole('button',{name:'Nhập vai'})).toBeVisible();
+
+  for (const viewport of [{width:360,height:640},{width:320,height:480},{width:667,height:375}]) {
+    await page.setViewportSize(viewport);
+    await fitsScreen(page,['canvas','#view','#settings','#event','#piece','#target','#confirm-move']);
+  }
+  await page.locator('#piece').selectOption('e7');
+  await page.locator('#target').selectOption('e5');
+  await page.getByRole('button',{name:'Đi',exact:true}).click();
+  await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
+
+  await page.getByRole('button',{name:'Ván mới'}).click();
+  await fitsScreen(page,['canvas','#start','#mode']);
+  await page.setViewportSize({width:320,height:480});
+  await fitsScreen(page,['canvas','#start','#mode']);
+});

@@ -10,7 +10,15 @@
   --mint: #81d5c4;
 }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 300px; }
+body { margin: 0; overflow: hidden; }
+#app {
+  display: grid;
+  grid-template-rows: auto minmax(0,1fr);
+  height: 100vh;
+  height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: clip;
+}
 button, select { font: inherit; }
 button, select, fieldset {
   border: 1px solid var(--line);
@@ -35,15 +43,22 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .crest { color: var(--gold); font-size: 1.85rem; }
 .actions { display: flex; flex-wrap: wrap; justify-content: end; gap: .45rem; }
 .actions button { font-size: .81rem; }
-.layout { display: grid; grid-template-columns: minmax(0,1fr) clamp(260px,27vw,360px); min-height: calc(100svh - 68px); }
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) clamp(236px,27vw,360px);
+  grid-template-rows: minmax(0,1fr);
+  min-height: 0;
+}
 .viewport {
   background: #6d8a76;
-  min-height: 540px;
+  min-height: 0;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   isolation: isolate;
 }
 .viewport canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; }
+.viewport.playing canvas { cursor: pointer; }
 .scene-tag {
   position: absolute;
   z-index: 1;
@@ -69,6 +84,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .sidebar {
   display: grid;
   align-content: center;
+  min-width: 0;
+  min-height: 0;
   padding: clamp(1.1rem,3vw,2rem);
   background: #19231d;
   border-left: 1px solid var(--line);
@@ -93,16 +110,57 @@ select { width: 100%; min-height: 42px; padding: .55rem; }
 #event span { color: var(--subtle); font-size: .85rem; }
 .targets { display: flex; gap: .35rem; flex-wrap: wrap; margin: .5rem 0; }
 .targets button { padding: .35rem .65rem; }
+.target-control { display: none; }
 #log { display: flex; flex-wrap: wrap; gap: .38rem; padding: 0; list-style: none; min-height: 1.45rem; }
 #log li { font: .77rem/1 monospace; padding: .36rem .45rem; border: 1px solid var(--line); border-radius: 5px; }
 dialog { background: #242d26; color: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 1.2rem; }
 dialog::backdrop { background: #090b09aa; }
 dialog h2 { margin-top: 0; }
-@media (max-width: 740px) {
-  .layout { grid-template-columns: 1fr; }
-  .viewport { height: clamp(365px,58svh,610px); min-height: 0; }
+@media (max-width: 800px), (max-height: 630px) {
+  .masthead { min-height: 50px; padding: .3rem clamp(.55rem,2vw,1rem); gap: .4rem; }
+  .wordmark { font-size: 1.2rem; white-space: nowrap; gap: .35rem; }
+  .crest { font-size: 1.4rem; }
+  .actions { gap: .25rem; }
+  .actions button { padding: .45rem .46rem; min-height: 36px; white-space: nowrap; font-size: .76rem; }
+  .sidebar { padding: .55rem clamp(.55rem,2vw,1rem); }
+  h1 { font-size: 1.45rem; margin: 0 0 .5rem; }
+  .scene-tag { top: .5rem; left: .5rem; font-size: .77rem; padding: .3rem .5rem; }
+  .setup fieldset { min-width: 0; gap: .36rem .6rem; margin: 0; padding: .35rem .45rem .45rem; font-size: .84rem; }
+  .setup fieldset label { white-space: nowrap; }
+  .select-label, .selection label { margin: .4rem 0 .2rem; font-size: .76rem; }
+  select { min-height: 40px; min-width: 0; padding: .4rem; font-size: .85rem; }
+  .primary { min-height: 40px; margin-top: .5rem; padding: .42rem .48rem; font-size: .87rem; }
+  #roll { margin-top: .25rem; font-size: .8rem; }
+  .turn { font-size: 1.33rem; }
+  #rule { margin: .15rem 0 0; font-size: .75rem; line-height: 1.25; }
+  .event { padding: .4rem .5rem; margin-top: .35rem; }
+  .event #event { min-height: 0; gap: .17rem .45rem; font-size: .82rem; line-height: 1.25; }
+  .event #event span { font-size: .76rem; }
+  .eyebrow { font-size: .65rem; padding-bottom: .18rem; }
+  .targets, #log, #tip, .setup .muted { display: none; }
+  .selection { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.23fr); gap: .4rem; }
+  .target-control { display: block; min-width: 0; }
+  .target-control > div { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: .25rem; }
+  #confirm-move { min-height: 40px; padding: .35rem .5rem; }
+}
+@media (max-width: 800px) and (orientation: portrait) {
+  .layout { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr) auto; }
   .sidebar { border-left: 0; border-top: 1px solid var(--line); }
-  h1 { margin-bottom: .95rem; }
+  .setup { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: .3rem .55rem; align-items: start; }
+  .setup h1, .setup .primary, #roll, .selection { grid-column: 1 / -1; }
+  .setup .mode-control label { margin: 0 0 .22rem; }
+  .setup .primary { margin-top: .15rem; }
+  #game { display: grid; grid-template-columns: minmax(0,.85fr) minmax(0,1.15fr); gap: .2rem .6rem; }
+  #game .event { margin-top: 0; }
+}
+@media (max-width: 360px) {
+  .crest { display: none; }
+}
+@media (orientation: landscape) and (max-height: 350px) {
+  .masthead { min-height: 44px; }
+  .sidebar { align-content: start; }
+  .setup h1 { margin-bottom: .25rem; }
+  .select-label, .selection label { margin-top: .22rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   .flash.active { animation: none; }

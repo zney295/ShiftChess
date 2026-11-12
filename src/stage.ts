@@ -24,6 +24,7 @@ export class Stage {
   private readonly sky = new T.HemisphereLight('#d6e8f5','#5a493d',.79);
   private readonly rim = new T.DirectionalLight('#c7dcff',.73);
   private readonly meshes = new Map<Square, T.Group>();
+  private legalTargets = new Set<Square>();
   private readonly markers = new Map<Square, T.Mesh>();
   private readonly models = new Map<string, T.Group>();
   private readonly links = new T.Group();
@@ -46,6 +47,7 @@ export class Stage {
   private readonly tiles: T.Mesh[] = [];
   private tween?: Tween;
   private setting?: Setting;
+  private cameraFrame: { side: Color; chosen?: Square; overhead: boolean } = {side:'w',overhead:true};
   private time = 0;
   private lastDraw = 0;
   private needsRender = true;
@@ -101,20 +103,20 @@ export class Stage {
       const rect = this.canvas.getBoundingClientRect();
       this.pointer.set((event.clientX-rect.left)/rect.width*2-1, 1-(event.clientY-rect.top)/rect.height*2);
       this.raycaster.setFromCamera(this.pointer,this.camera);
+      const onBoard = this.raycaster.ray.intersectPlane(this.groundPlane,new T.Vector3());
+      const tile = onBoard && Math.abs(onBoard.x)<4 && Math.abs(onBoard.z)<4
+        ? squareAt(Math.floor(onBoard.x+4),Math.floor(onBoard.z+4)) : undefined;
       const piece = this.raycaster.intersectObjects([...this.meshes.values()], true)[0];
+      let pieceSquare: Square | undefined;
       if (piece) {
         let root = piece.object;
         while (root.parent && root.parent !== this.scene) root = root.parent;
-        const hit = [...this.meshes].find(([,model]) => root === model);
-        if (hit) {
-          this.onSquare?.(hit[0]);
-          return;
-        }
+        pieceSquare = [...this.meshes].find(([,model]) => root === model)?.[0];
       }
-      const onBoard = this.raycaster.ray.intersectPlane(this.groundPlane,new T.Vector3());
-      if (onBoard && Math.abs(onBoard.x)<4 && Math.abs(onBoard.z)<4) {
-        this.onSquare?.(squareAt(Math.floor(onBoard.x+4),Math.floor(onBoard.z+4)));
-      }
+      // An available capture or lit floor square takes precedence over unrelated geometry.
+      const picked = pieceSquare && this.legalTargets.has(pieceSquare) ? pieceSquare
+        : tile && this.legalTargets.has(tile) ? tile : pieceSquare ?? tile;
+      if (picked) this.onSquare?.(picked);
     });
     const resize = () => {
       const w=host.clientWidth,h=host.clientHeight;
@@ -123,6 +125,10 @@ export class Stage {
       this.camera.aspect=w/h;
       this.camera.fov=w/h<1.1 ? 55 : 47;
       this.camera.updateProjectionMatrix();
+      if (!this.tween) {
+        const {side,chosen,overhead}=this.cameraFrame;
+        this.frame(side,chosen,overhead,true);
+      }
       this.needsRender=true;
     };
     new ResizeObserver(resize).observe(host);
@@ -184,6 +190,7 @@ export class Stage {
   }
 
   indicate(shift: Shift | null, chosen?: Square, legal: Square[] = [], checked?: Square) {
+    this.legalTargets = new Set(legal);
     while (this.links.children.length) {
       const line = this.links.children[0] as T.Line;
       this.links.remove(line);
@@ -206,6 +213,7 @@ export class Stage {
   }
 
   frame(side: Color, chosen?: Square, overhead=false, immediate=false) {
+    this.cameraFrame={side,chosen,overhead};
     const dir = flip(side);
     const narrow = this.camera.aspect < 1.1;
     if (overhead) {
@@ -215,7 +223,9 @@ export class Stage {
     } else if (chosen) {
       this.follow(side,point(chosen));
     } else {
-      this.destination.set(0,narrow ? 6.15 : 4.55,dir*(narrow ? 10.8 : 8.65));
+      const distance=Math.max(1,.85/this.camera.aspect);
+      // Show the heads of the pawns above the taller back rank before a piece is picked.
+      this.destination.set(0,(narrow ? 7.4 : 5.9)*distance,dir*(narrow ? 10.8 : 8.65)*distance);
       this.target.set(0,.26,0);
     }
     if (immediate) {

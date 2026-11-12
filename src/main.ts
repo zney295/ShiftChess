@@ -27,30 +27,43 @@ host.innerHTML = `
           <label><input type="radio" name="setting" value="park" checked> Công viên</label>
           <label><input type="radio" name="setting" value="library"> Thư viện</label>
         </fieldset>
-        <label class="select-label" for="mode">Thời điểm SHIFT</label>
-        <select id="mode" name="mode">
-          <option value="periodic">Định kỳ · mỗi 3 vòng</option>
-          <option value="late">Cuối ván · vòng 12</option>
-          <option value="random">Bốc ngẫu nhiên chế độ</option>
-        </select>
+        <div class="mode-control">
+          <label class="select-label" for="mode">Thời điểm SHIFT</label>
+          <select id="mode" name="mode">
+            <option value="periodic">Định kỳ · mỗi 3 vòng</option>
+            <option value="late">Cuối ván · vòng 12</option>
+            <option value="random">Bốc ngẫu nhiên chế độ</option>
+          </select>
+        </div>
         <button class="primary" id="start" type="submit">Quay sự kiện và bắt đầu</button>
         <output id="roll" aria-live="polite"></output>
         <p class="muted">Hai người chung máy. Mỗi bên tự vào góc nhìn nhập vai khi đến lượt.</p>
       </form>
       <div id="game" hidden>
-        <div class="turn" id="turn" aria-live="polite"></div>
-        <p class="muted" id="rule"></p>
+        <div class="match-status">
+          <div class="turn" id="turn" aria-live="polite"></div>
+          <p class="muted" id="rule"></p>
+        </div>
         <section class="event" aria-label="Sự kiện SHIFT">
           <p class="eyebrow">SHIFT</p>
           <p id="event" aria-live="polite"></p>
         </section>
         <section class="selection" aria-label="Đi quân bằng tọa độ">
-          <label for="piece">Quân đang chọn</label>
-          <select id="piece"><option value="">Chọn quân</option></select>
+          <div class="piece-control">
+            <label for="piece">Quân đang chọn</label>
+            <select id="piece"><option value="">Chọn quân</option></select>
+          </div>
           <div class="targets" id="targets"></div>
+          <form class="target-control" id="compact-move">
+            <label for="target">Ô đến</label>
+            <div>
+              <select id="target"><option value="">Chọn ô</option></select>
+              <button id="confirm-move" type="submit" disabled>Đi</button>
+            </div>
+          </form>
         </section>
         <ol id="log" aria-label="Nước đi gần nhất"></ol>
-        <p class="muted" id="tip">Chọn quân rồi chọn ô sáng. Dùng Toàn bàn nếu quân che mất tầm nhìn.</p>
+        <p class="muted" id="tip">Bấm quân của bên đang đi, rồi bấm ô sáng. Chọn Toàn bàn để thấy đủ bàn cờ.</p>
       </div>
     </aside>
   </div>
@@ -76,6 +89,8 @@ try {
 const setup=get<HTMLFormElement>('setup'), game=get('game'), view=get<HTMLButtonElement>('view');
 const sound=get<HTMLButtonElement>('sound'), settings=get<HTMLButtonElement>('settings');
 const picker=get<HTMLSelectElement>('piece'), targets=get('targets');
+const targetPicker=get<HTMLSelectElement>('target');
+const confirmMove=get<HTMLButtonElement>('confirm-move');
 const pieceNames={ p:'Tốt', n:'Mã', b:'Tượng', r:'Xe', q:'Hậu', k:'Vua' };
 const effectText: Record<Effect,string> = {
   swap:'Hai ô hoán đổi quân hiện có.',
@@ -130,6 +145,9 @@ function draw() {
   }
   picker.value=selected ?? '';
   picker.disabled=busy || ended;
+  targetPicker.replaceChildren(new Option('Chọn ô',''), ...squares.map(square=>new Option(square,square)));
+  targetPicker.disabled=busy || ended || !squares.length;
+  confirmMove.disabled=true;
   targets.replaceChildren();
   for (const square of squares) {
     const button=document.createElement('button');
@@ -202,6 +220,13 @@ async function choose(square: Square) {
 }
 
 stage.onSquare=square=>void choose(square);
+targetPicker.addEventListener('change',()=>{
+  confirmMove.disabled=busy || !targetPicker.value;
+});
+get<HTMLFormElement>('compact-move').addEventListener('submit',event=>{
+  event.preventDefault();
+  if (!confirmMove.disabled && targetPicker.value) void choose(targetPicker.value as Square);
+});
 picker.addEventListener('change',()=>{
   if (!match || busy) return;
   selected=(picker.value || undefined) as Square | undefined;
@@ -225,6 +250,7 @@ settings.addEventListener('click',()=>{
   selected=undefined;
   setup.hidden=false;
   game.hidden=view.hidden=settings.hidden=true;
+  viewport.classList.remove('playing');
   get('roll').textContent='';
   stage.indicate(null);
   stage.frame('w',undefined,true);
@@ -264,6 +290,7 @@ setup.addEventListener('submit',async event=>{
   stage.frame('w');
   setup.hidden=true;
   game.hidden=view.hidden=settings.hidden=false;
+  viewport.classList.add('playing');
   start.disabled=false;
   draw();
 });
