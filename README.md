@@ -16,7 +16,7 @@ Mở URL Vite in ra. Bản build nằm trong `dist/`. Nén các tệp **bên tro
 - Click vào bàn cờ hoặc chọn quân và ô theo tọa độ. Dùng **Toàn bàn** để xem thế cờ. Khi ăn quân, bàn tay nhấc quân lên, gạt quân đối phương rồi đặt quân xuống.
 - Nút **EN / VI** đổi ngôn ngữ giao diện ở bất kỳ màn nào. Game ghi nhớ lựa chọn trong trình duyệt.
 
-Ảnh bìa [knight-cover.jpg](src/assets/knight-cover.jpg) được tạo bằng ImageGen. Prompt mô tả ảnh cận cảnh quân mã Staunton bằng gỗ óc chó trên bàn cờ cẩm thạch xanh và ngà, với ánh chiều vàng và phông xanh rừng tối.
+Nền màn Bắt đầu được vẽ bằng Canvas 2D và tôn trọng cài đặt giảm chuyển động.
 
 TypeScript + Three.js + Vite. `chess.js` kiểm tra luật cờ chuẩn, còn `src/rules.ts` điều phối lịch và kiểm tra thế cờ SHIFT. Mô hình, vân gỗ và âm thanh trong bản này đều được tạo từ mã nguồn. Phần hình ảnh và bàn tay hiện là mẫu dựng hình cho bản thử.
 

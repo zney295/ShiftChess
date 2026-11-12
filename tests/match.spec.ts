@@ -15,7 +15,7 @@ test('two players see a capture, a countdown, and a SHIFT in the library', async
   await expect(page.locator('#random-screen')).not.toContainText('Đổi chỗ');
   await page.evaluate(()=>{ Math.random=()=>0; });
   await page.getByRole('button',{name:'Vào ván'}).click();
-  await expect(page.locator('canvas')).toBeVisible();
+  await expect(page.locator('#viewport canvas')).toBeVisible();
   await expect(page.locator('#location')).toHaveText('Thư viện');
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
   await expect(page.locator('#rule')).toHaveText('Định kỳ mỗi 3 vòng · Đổi chỗ');

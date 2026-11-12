@@ -4,6 +4,7 @@ import { copy, type CopyKey, type Locale } from './copy';
 import type { Setting } from './models';
 import { effects, Match } from './rules';
 import { Stage } from './stage';
+import { drawStartArt } from './start-art';
 import './style.css';
 
 const host = document.querySelector<HTMLElement>('#app')!;
@@ -21,7 +22,7 @@ host.innerHTML = `
   </header>
   <section id="start-screen" class="menu-screen" aria-labelledby="start-title">
     <div class="start-shell">
-    <div class="start-art" aria-hidden="true"></div>
+    <canvas class="start-art" aria-hidden="true"></canvas>
     <div class="start-panel">
       <header>
         <h1 id="start-title">ShiftChess</h1>
@@ -364,3 +365,4 @@ localeButton.addEventListener('click',()=>{
 });
 showScreen('start');
 translate();
+drawStartArt(host.querySelector<HTMLCanvasElement>('.start-art')!,screens.start);

@@ -55,7 +55,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   box-shadow: 0 1.5rem 5rem #05090585;
 }
 .start-art {
-  background: #22291d url('./assets/knight-cover.jpg') center 40% / cover no-repeat;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #ead7a4;
   min-height: 0;
 }
 .start-panel {
@@ -265,7 +268,6 @@ dialog h2 { margin-top: 0; }
     grid-template-columns: minmax(0,1fr);
     grid-template-rows: clamp(78px,21dvh,172px) auto;
   }
-  .start-art { background-position: 50% 17%; }
   .start-panel { padding: .85rem 1rem 1rem; }
   .start-panel h1 { font-size: clamp(2.1rem,9vw,3.1rem); }
   .start-panel header p { margin: .35rem 0 .65rem; }

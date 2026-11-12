@@ -21,7 +21,7 @@ test('click the piece and destination, then continue on a compact screen', async
   await page.setViewportSize({width:1280,height:720});
   await page.goto('/');
   await fitsScreen(page,['#start','#locale']);
-  await expect(page.locator('canvas')).toHaveCount(0);
+  await expect(page.locator('#viewport canvas')).toHaveCount(0);
   await page.getByRole('button',{name:'Switch to English'}).click();
   await expect(page.getByRole('button',{name:'Start',exact:true})).toBeVisible();
   await page.reload();
@@ -42,13 +42,13 @@ test('click the piece and destination, then continue on a compact screen', async
   await expect(page.locator('#roll')).toHaveText(/^(Công viên|Thư viện)$/);
   await expect(page.locator('#random-screen')).not.toContainText(/Đổi chỗ|Dịch quân|Đổi kép/);
   await page.emulateMedia({reducedMotion:'reduce'});
-  await expect(page.locator('canvas')).toHaveCount(0);
+  await expect(page.locator('#viewport canvas')).toHaveCount(0);
   await page.getByRole('button',{name:'Vào ván'}).click();
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
   await expect(page.locator('#shift-heading')).toHaveText('Luật ngẫu nhiên');
   await expect(page.locator('#random-screen')).toBeHidden();
 
-  const canvas=(await page.locator('canvas').boundingBox())!;
+  const canvas=(await page.locator('#viewport canvas').boundingBox())!;
   const camera=new PerspectiveCamera(47,canvas.width/canvas.height,.1,80);
   async function clickWorld(x: number,y: number,z: number) {
     await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
@@ -71,7 +71,7 @@ test('click the piece and destination, then continue on a compact screen', async
 
   for (const viewport of [{width:360,height:640},{width:320,height:480},{width:667,height:375}]) {
     await page.setViewportSize(viewport);
-    await fitsScreen(page,['canvas','#view','#settings','#event','#piece','#target','#confirm-move','#locale']);
+    await fitsScreen(page,['#viewport canvas','#view','#settings','#event','#piece','#target','#confirm-move','#locale']);
   }
   await page.locator('#piece').selectOption('e7');
   await page.locator('#target').selectOption('e5');
@@ -79,7 +79,7 @@ test('click the piece and destination, then continue on a compact screen', async
   await expect(page.locator('#turn')).toHaveText('White to move');
 
   await page.getByRole('button',{name:'New game'}).click();
-  await expect(page.locator('canvas')).toBeHidden();
+  await expect(page.locator('#viewport canvas')).toBeHidden();
   await fitsScreen(page,['#start','#locale']);
   await page.setViewportSize({width:320,height:480});
   await fitsScreen(page,['#start','#locale']);
