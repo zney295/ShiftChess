@@ -1,11 +1,12 @@
 import * as T from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Color, Move, Piece, Square } from 'chess.js';
-import { box, furniture, handModel, material, mesh, pieceModel, type Setting } from './models';
+import { boardMaterials, box, furniture, handModel, mesh, pieceModel, type Setting } from './models';
 import type { Shift } from './rules';
 
 const alphabet = 'abcdefgh';
 const squareAt = (x: number, z: number) => (alphabet[x] + (8-z)) as Square;
-const point = (s: Square) => new T.Vector3(alphabet.indexOf(s[0])-3.5, .025, 4.5-Number(s[1]));
+const point = (s: Square) => new T.Vector3(alphabet.indexOf(s[0])-3.5, .004, 4.5-Number(s[1]));
 const smooth = (x: number) => x*x*(3-2*x);
 const flip = (side: Color) => side === 'w' ? 1 : -1;
 type Board = ({square: Square} & Piece | null)[][];
@@ -19,7 +20,9 @@ export class Stage {
   private readonly aim = new T.Vector3();
   private readonly destination = new T.Vector3();
   private readonly target = new T.Vector3();
-  private readonly light = new T.DirectionalLight('#ffe5c2', 2.45);
+  private readonly light = new T.DirectionalLight('#fff0d8', 3.15);
+  private readonly sky = new T.HemisphereLight('#d6e8f5','#5a493d',.79);
+  private readonly rim = new T.DirectionalLight('#c7dcff',.73);
   private readonly meshes = new Map<Square, T.Group>();
   private readonly markers = new Map<Square, T.Mesh>();
   private readonly models = new Map<string, T.Group>();
@@ -37,33 +40,48 @@ export class Stage {
   private readonly checkMarker = new T.MeshBasicMaterial({color:'#ff5d52',transparent:true,opacity:.59,depthWrite:false,side:T.DoubleSide});
   private readonly linkMaterials = this.shiftMarkers.map(surface => new T.LineBasicMaterial({color:surface.color,transparent:true,opacity:.69}));
   private readonly tileMaterials = {
-    park: [material('#47695b',.82),material('#c8c8a7',.85)],
-    library: [material('#694538',.59),material('#dec1a1',.62)],
+    park: boardMaterials('park'),
+    library: boardMaterials('library'),
   };
   private readonly tiles: T.Mesh[] = [];
   private tween?: Tween;
   private setting?: Setting;
   private time = 0;
+  private lastDraw = 0;
+  private needsRender = true;
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   onSquare?: (square: Square) => void;
 
   constructor(host: HTMLElement) {
     this.renderer = new T.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio,1.65));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));
     this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = T.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
+    const studio = new RoomEnvironment();
+    const probe = new T.PMREMGenerator(this.renderer);
+    this.scene.environment = probe.fromScene(studio,.06,.1,100,{size:128}).texture;
+    studio.dispose();
+    probe.dispose();
     this.canvas = this.renderer.domElement;
     this.canvas.setAttribute('aria-label','Bàn cờ 3D');
     host.append(this.canvas);
-    this.scene.add(new T.HemisphereLight('#f9edcf','#586a61', 2.5), this.light, this.links);
-    this.light.position.set(-5,10,4);
+    this.scene.add(this.sky,this.light,this.rim,this.links);
+    this.light.position.set(-4.5,10.5,5);
+    this.rim.position.set(4,5,-6);
     this.light.castShadow = true;
-    this.light.shadow.mapSize.set(1024,1024);
-    Object.assign(this.light.shadow.camera,{left:-7,right:7,top:7,bottom:-7,far:30});
-    this.light.shadow.normalBias = .045;
-    this.light.shadow.bias = -.0003;
+    this.light.shadow.mapSize.set(2048,2048);
+    Object.assign(this.light.shadow.camera,{left:-6.4,right:6.4,top:6.4,bottom:-6.4,near:.8,far:23});
+    this.light.shadow.radius = 2;
+    this.light.shadow.normalBias = .018;
+    this.light.shadow.bias = -.00017;
     for (let z=0;z<8;z++) for (let x=0;x<8;x++) {
       const tile = box(.997,.08,.997,this.tileMaterials.park[(x+z)%2],x-3.5,-.04,z-3.5);
+      const uv=tile.geometry.getAttribute('uv');
+      for (let i=0;i<uv.count;i++) {
+        uv.setXY(i,uv.getX(i)+x*.69+z*.29,uv.getY(i)+z*.55+x*.22);
+      }
       tile.castShadow = false;
       this.tiles.push(tile);
       this.scene.add(tile);
@@ -105,6 +123,7 @@ export class Stage {
       this.camera.aspect=w/h;
       this.camera.fov=w/h<1.1 ? 55 : 47;
       this.camera.updateProjectionMatrix();
+      this.needsRender=true;
     };
     new ResizeObserver(resize).observe(host);
     resize();
@@ -133,11 +152,19 @@ export class Stage {
     if (!this.props.has(setting)) this.props.set(setting,furniture(setting));
     this.setting=setting;
     this.scene.add(this.props.get(setting)!);
-    const color = setting==='park' ? '#91ac97' : '#554135';
+    const park = setting==='park';
+    const color = park ? '#a2b9ad' : '#5a483c';
     this.scene.background=new T.Color(color);
-    this.scene.fog=new T.FogExp2(color,setting==='park' ? .038 : .027);
-    this.light.intensity=setting==='park' ? 2.45 : 1.75;
+    this.scene.fog=new T.FogExp2(color,park ? .022 : .015);
+    this.light.color.set(park ? '#fff1da' : '#ffdfb4');
+    this.light.intensity=park ? 2.75 : 2.52;
+    this.sky.intensity=park ? .74 : .56;
+    this.rim.intensity=park ? .64 : .85;
+    this.scene.environmentIntensity=park ? .43 : .39;
+    this.renderer.toneMappingExposure=park ? .95 : 1;
     this.tiles.forEach((tile,i)=> tile.material=this.tileMaterials[setting][(i+Math.floor(i/8))%2]);
+    this.renderer.shadowMap.needsUpdate=true;
+    this.needsRender=true;
   }
 
   sync(board: Board) {
@@ -152,6 +179,8 @@ export class Stage {
       this.scene.add(model);
       this.meshes.set(cell.square,model);
     }
+    this.renderer.shadowMap.needsUpdate=true;
+    this.needsRender=true;
   }
 
   indicate(shift: Shift | null, chosen?: Square, legal: Square[] = [], checked?: Square) {
@@ -173,30 +202,33 @@ export class Stage {
       const curve=new T.QuadraticBezierCurve3(from,mid,to);
       this.links.add(new T.Line(new T.BufferGeometry().setFromPoints(curve.getPoints(26)),this.linkMaterials[index]));
     });
+    this.needsRender=true;
   }
 
   frame(side: Color, chosen?: Square, overhead=false, immediate=false) {
     const dir = flip(side);
     const narrow = this.camera.aspect < 1.1;
     if (overhead) {
-      this.destination.set(0,narrow ? 14.3 : 10.5,dir*(narrow ? 10.2 : 8.8));
+      const distance=Math.max(1,.98/this.camera.aspect);
+      this.destination.set(0,10.1*distance,dir*8.55*distance);
       this.target.set(0,.04,0);
     } else if (chosen) {
       this.follow(side,point(chosen));
     } else {
-      this.destination.set(0,narrow ? 5.0 : 3.8,dir*(narrow ? 10.6 : 7.5));
-      this.target.set(0,.16,-dir*.5);
+      this.destination.set(0,narrow ? 6.15 : 4.55,dir*(narrow ? 10.8 : 8.65));
+      this.target.set(0,.26,0);
     }
     if (immediate) {
       this.camera.position.copy(this.destination);
       this.aim.copy(this.target);
       this.camera.lookAt(this.aim);
     }
+    this.needsRender=true;
   }
 
   private follow(side: Color, location: T.Vector3) {
     const dir=flip(side);
-    this.destination.set(location.x*.93,location.y+1.8,location.z+dir*2.6);
+    this.destination.set(location.x*.93,location.y+2.05,location.z+dir*2.8);
     this.target.set(location.x*.73,location.y+.25,location.z-dir*2.05);
   }
 
@@ -273,6 +305,8 @@ export class Stage {
     if (this.tween) {
       const progress=T.MathUtils.clamp((ms-this.tween.start)/this.tween.duration,0,1);
       this.tween.render(progress);
+      this.renderer.shadowMap.needsUpdate=true;
+      this.needsRender=true;
       if (progress===1) {
         const {end}=this.tween;
         this.tween=undefined;
@@ -281,11 +315,19 @@ export class Stage {
     }
     const dt=Math.min((ms-this.time)/1000,.08);
     this.time=ms;
-    const damping=this.reduced ? 1 : 1-Math.exp(-9*dt);
-    this.camera.position.lerp(this.destination,damping);
-    this.aim.lerp(this.target,damping);
-    this.camera.lookAt(this.aim);
+    const cameraMoving=this.camera.position.distanceToSquared(this.destination) > .000001 ||
+      this.aim.distanceToSquared(this.target) > .000001;
+    if (cameraMoving) {
+      const damping=this.reduced ? 1 : 1-Math.exp(-9*dt);
+      this.camera.position.lerp(this.destination,damping);
+      this.aim.lerp(this.target,damping);
+      this.camera.lookAt(this.aim);
+    }
+    const pulse=!this.reduced && this.links.children.length>0 && ms-this.lastDraw>=45;
+    if (!this.needsRender && !cameraMoving && !pulse) return;
     this.shiftMarkers.forEach((surface,i)=>surface.opacity=.51+(this.reduced ? 0 : .13*Math.sin(ms/250+i)));
     this.renderer.render(this.scene,this.camera);
+    this.lastDraw=ms;
+    this.needsRender=false;
   }
 }

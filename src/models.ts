@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import type { Color, PieceSymbol } from 'chess.js';
 
 export type Setting = 'park' | 'library';
@@ -22,63 +23,151 @@ function sphere(radius: number, surface: T.Material, x: number, y: number, z: nu
   return mesh(new T.SphereGeometry(radius, 16, 10), surface, x, y, z);
 }
 
-const profiles: Record<PieceSymbol, [number, number][]> = {
-  p: [[.22,.12],[.18,.19],[.115,.28],[.09,.42],[.14,.48],[.14,.53],[.06,.55]],
-  r: [[.24,.13],[.19,.23],[.16,.56],[.22,.65],[.23,.75],[.18,.76],[.18,.70],[.01,.70]],
-  n: [[.23,.14],[.19,.24],[.14,.42],[.06,.48]],
-  b: [[.23,.13],[.19,.23],[.10,.54],[.16,.62],[.13,.68],[.17,.77],[.12,.87],[.035,.98]],
-  q: [[.25,.14],[.20,.23],[.11,.58],[.20,.68],[.16,.74],[.23,.89],[.19,.94],[.09,.87],[.01,.87]],
-  k: [[.26,.14],[.20,.23],[.12,.65],[.21,.74],[.20,.80],[.14,.86],[.15,.92],[.08,.96]],
+type Profile = [radius: number, height: number][];
+const pedestal: Profile = [
+  [0,0],[.271,0],[.303,.008],[.325,.027],[.328,.053],[.319,.069],
+  [.301,.077],[.300,.089],[.307,.100],[.307,.117],[.294,.128],
+  [.262,.138],[.255,.152],[.270,.164],[.268,.18],[.244,.194],
+];
+const collar = (radius: number, y: number): Profile => [
+  [radius-.028,y],[radius,y+.014],[radius+.01,y+.032],
+  [radius+.005,y+.052],[radius-.017,y+.064],[radius-.038,y+.071],
+];
+const profiles: Record<PieceSymbol, Profile> = {
+  p: [[.188,.234],[.143,.298],[.112,.389],[.105,.496],...collar(.163,.52),[.089,.61],[.077,.665]],
+  r: [[.244,.234],[.225,.273],[.199,.343],[.181,.465],[.183,.606],[.198,.668],
+    ...collar(.244,.675),[.254,.766],[.269,.786],[.272,.831],[.262,.855],[.202,.855],[.195,.838],[.195,.778]],
+  n: [[.219,.231],[.193,.258],[.213,.28],[.21,.303],[.194,.321]],
+  b: [[.191,.242],[.147,.312],[.117,.428],[.104,.623],...collar(.176,.65),
+    [.106,.735],[.121,.761],[.166,.805],[.179,.856],[.174,.901],[.148,.953],[.103,1.018],[.043,1.071],[.017,1.091]],
+  q: [[.209,.239],[.167,.311],[.131,.448],[.119,.648],...collar(.196,.694),
+    [.111,.784],[.14,.839],[.184,.92],[.225,.981],[.246,1.024],[.239,1.051],[.204,1.055],[.182,1.018],[.172,.963]],
+  k: [[.22,.246],[.177,.318],[.142,.465],[.128,.693],...collar(.211,.737),
+    [.134,.826],[.161,.861],[.218,.896],[.229,.928],[.207,.968],[.175,1.006],[.151,1.054],[.125,1.074],[.085,1.091]],
 };
-const pieceSurfaces = { w: material('#e7c58e', .3, .18), b: material('#303b42', .33, .22) };
-const trim = { w: material('#b98d53', .36, .35), b: material('#65707a', .4, .35) };
+const proportions: Record<PieceSymbol, [number, number]> = {
+  p:[.92,.99], r:[1.03,1.02], n:[1,1.08], b:[.98,1.05], q:[1.02,1.11], k:[1.07,1.11],
+};
+const pieceSurfaces = {
+  w: new T.MeshPhysicalMaterial({color:'#e4bf86',roughness:.33,clearcoat:.61,clearcoatRoughness:.23}),
+  b: new T.MeshPhysicalMaterial({color:'#382c2b',roughness:.33,clearcoat:.58,clearcoatRoughness:.21}),
+};
+const trim = { w: material('#b77938',.34,.55), b: material('#967153',.34,.51) };
+const turned = (profile: Profile) => new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),72);
 const geometries = Object.fromEntries(Object.entries(profiles).map(([type, profile]) => [type,
-  new T.LatheGeometry([[.001,0],[.225,0],[.252,.035],[.25,.08],...profile,[.001,profile.at(-1)![1]]]
-    .map(([r, y]) => new T.Vector2(r, y)), 36),
+  turned([...pedestal,...profile,[0,profile.at(-1)![1]]]),
 ]));
+const headBall = new T.SphereGeometry(1,40,26);
+const bishopHead = geometries.b;
+const bishopPoints = bishopHead.getAttribute('position');
+for (let i=0;i<bishopPoints.count;i++) {
+  const y=bishopPoints.getY(i);
+  if (y<.81 || y>1.055) continue;
+  const x=bishopPoints.getX(i),z=bishopPoints.getZ(i);
+  const angle=Math.atan2(z,x) - .8 - (y-.92)*6;
+  const distance=Math.abs(Math.sin(angle));
+  const cut=T.MathUtils.smoothstep(1-distance/.21,0,1)*.42;
+  bishopPoints.setXYZ(i,x*(1-cut),y,z*(1-cut));
+}
+bishopHead.computeVertexNormals();
+
+function bead(r: number,surface: T.Material,x: number,y: number,z: number) {
+  const object = mesh(headBall,surface,x,y,z);
+  object.scale.setScalar(r);
+  return object;
+}
+
+function ring(r: number, thickness: number, y: number, surface: T.Material) {
+  const object = mesh(new T.TorusGeometry(r,thickness,10,72),surface,0,y);
+  object.rotation.x=Math.PI/2;
+  return object;
+}
+
+function horse(surface: T.Material, accent: T.Material) {
+  const outline = new T.Shape();
+  outline.moveTo(-.177,.296);
+  outline.bezierCurveTo(-.22,.477,-.242,.69,-.149,.853);
+  outline.bezierCurveTo(-.125,.898,-.084,.93,-.068,.956);
+  outline.lineTo(-.082,1.05);
+  outline.quadraticCurveTo(-.013,1.072,.018,.956);
+  outline.bezierCurveTo(.085,.967,.13,.899,.181,.858);
+  outline.bezierCurveTo(.224,.817,.296,.774,.302,.716);
+  outline.bezierCurveTo(.305,.68,.267,.651,.222,.661);
+  outline.quadraticCurveTo(.188,.674,.117,.721);
+  outline.bezierCurveTo(.055,.701,.042,.638,.065,.569);
+  outline.bezierCurveTo(.082,.504,.124,.426,.174,.372);
+  outline.lineTo(.164,.296);
+  outline.closePath();
+  const neck = new T.ExtrudeGeometry(outline,{
+    depth:.128,bevelEnabled:true,bevelSize:.060,bevelThickness:.066,bevelSegments:6,steps:1,curveSegments:21,
+  });
+  neck.translate(0,0,-.064);
+  const vertices=neck.getAttribute('position');
+  for (let i=0;i<vertices.count;i++) {
+    const x=vertices.getX(i),y=vertices.getY(i);
+    const taper=T.MathUtils.lerp(1,.63,T.MathUtils.smoothstep(y,.44,1.08)) *
+      T.MathUtils.lerp(1,.76,T.MathUtils.smoothstep(x,.12,.31));
+    vertices.setZ(i,vertices.getZ(i)*taper);
+  }
+  neck.computeVertexNormals();
+  const result=new T.Group();
+  const head=mesh(neck,surface);
+  head.name='Knight head and neck';
+  result.add(head);
+  for (const side of [-1,1]) {
+    const cheek=bead(.102,surface,.066,.791,side*.068);
+    cheek.scale.set(.13,.098,.071);
+    cheek.rotation.z=-.38;
+    const eye=bead(.019,accent,.084,.858,side*.106);
+    eye.scale.z=.011;
+    const nostril=bead(.016,accent,.262,.731,side*.077);
+    nostril.scale.set(.024,.013,.008);
+    const ridge=new T.CatmullRomCurve3([
+      new T.Vector3(-.163,.356,side*.089),new T.Vector3(-.203,.545,side*.105),
+      new T.Vector3(-.197,.717,side*.089),new T.Vector3(-.106,.892,side*.089),
+    ]);
+    result.add(cheek,eye,nostril,mesh(new T.TubeGeometry(ridge,26,.013,8,false),accent));
+  }
+  return result;
+}
 
 export function pieceModel(type: PieceSymbol, color: Color) {
-  const result = new T.Group();
-  const surface = pieceSurfaces[color];
-  const ring = mesh(new T.TorusGeometry(.23, .017, 8, 36), trim[color], 0, .105);
-  ring.rotation.x = Math.PI / 2;
-  result.add(mesh(geometries[type], surface), ring);
-  if (type === 'p') result.add(sphere(.146, surface, 0, .655, 0));
-  if (type === 'b') {
-    result.add(sphere(.045, trim[color], 0, 1, 0));
-    const slit = box(.027, .15, .023, trim[color], .054, .875, -.111);
-    slit.rotation.z = -.58;
-    result.add(slit);
-  }
-  if (type === 'r' || type === 'q') {
-    for (let i = 0; i < 6; i++) {
-      const angle = i * Math.PI / 3;
-      const x = .19 * Math.cos(angle), z = .19 * Math.sin(angle);
-      const crown = type === 'q' ? sphere(.045, trim[color], x, .96, z)
-        : box(.093, .092, .09, surface, x, .80, z);
-      crown.rotation.y = -angle;
+  const result=new T.Group();
+  const surface=pieceSurfaces[color],accent=trim[color];
+  const body=mesh(geometries[type],surface);
+  body.name='Turned body';
+  const foot=ring(.302,.009,.084,accent);
+  foot.name='Pedestal inlay';
+  result.add(body,foot,ring(.254,.008,.155,surface));
+  if (type==='p') result.add(bead(.177,surface,0,.731,0));
+  if (type==='b') result.add(bead(.045,surface,0,1.094,0));
+  if (type==='r' || type==='q') {
+    for (let i=0;i<6;i++) {
+      const angle=i*Math.PI/3;
+      const radius=type==='r' ? .234 : .213;
+      const x=radius*Math.cos(angle),z=radius*Math.sin(angle);
+      const crown=type==='r'
+        ? mesh(new RoundedBoxGeometry(.105,.126,.133,3,.015),surface,x,.904,z)
+        : mesh(new T.ConeGeometry(.057,.12,18),surface,x,1.076,z);
+      crown.rotation.y=-angle;
       result.add(crown);
     }
+    if (type==='q') result.add(ring(.221,.009,1.029,accent),bead(.075,surface,0,1.087,0));
+    if (type==='r') result.add(ring(.248,.008,.783,accent));
   }
-  if (type === 'k') result.add(box(.07,.25,.07,trim[color],0,1.07), box(.23,.065,.07,trim[color],0,1.09));
-  if (type === 'n') {
-    const shape = new T.Shape();
-    shape.moveTo(-.14,.32);
-    shape.bezierCurveTo(-.25,.54,-.26,.79,-.13,.99);
-    shape.lineTo(-.075,.89);
-    shape.bezierCurveTo(.02,.9,.1,.83,.21,.72);
-    shape.lineTo(.20,.63);
-    shape.lineTo(.13,.60);
-    shape.lineTo(-.01,.67);
-    shape.bezierCurveTo(-.07,.55,.13,.48,.15,.32);
-    shape.closePath();
-    const geometry = new T.ExtrudeGeometry(shape, { depth:.135, bevelEnabled:true, bevelSize:.035, bevelThickness:.032, bevelSegments:3, steps:1, curveSegments:12 });
-    geometry.translate(0,0,-.0675);
-    const head = new T.Group();
-    head.rotation.y = color === 'w' ? Math.PI / 2 : -Math.PI / 2;
-    head.add(mesh(geometry,surface), sphere(.023,trim[color],.035,.778,.105), sphere(.023,trim[color],.035,.778,-.105));
+  if (type==='k') {
+    const stem=mesh(new RoundedBoxGeometry(.083,.25,.079,3,.015),surface,0,1.196);
+    const crossbar=mesh(new RoundedBoxGeometry(.265,.083,.079,3,.015),surface,0,1.227);
+    result.add(stem,crossbar,ring(.141,.010,1.066,accent));
+  }
+  if (type==='n') {
+    const head=horse(surface,accent);
+    head.rotation.y=color==='w' ? Math.PI*.28 : -Math.PI*.72;
+    head.name='Knight sculpture';
     result.add(head);
   }
+  const [width,height]=proportions[type];
+  result.scale.set(width,height,width);
   return result;
 }
 
@@ -122,7 +211,52 @@ function grain(base: string, stroke: string) {
   }
   const texture = new T.CanvasTexture(canvas);
   texture.colorSpace = T.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = T.MirroredRepeatWrapping;
+  texture.anisotropy = 8;
   return texture;
+}
+
+export function boardMaterials(setting: Setting) {
+  if (setting==='library') return [
+    new T.MeshStandardMaterial({map:grain('#63433b','#312521'),roughness:.57}),
+    new T.MeshStandardMaterial({map:grain('#e0bf96','#987554'),roughness:.61}),
+  ];
+  return [
+    stone('#355552','#83a79d','#243d3a'),
+    stone('#d9d5bc','#faf4e4','#9f9f87'),
+  ];
+}
+
+function stone(base: string, light: string, dark: string) {
+  const canvas=document.createElement('canvas');
+  canvas.width=canvas.height=256;
+  const ctx=canvas.getContext('2d')!;
+  ctx.fillStyle=base;
+  ctx.fillRect(0,0,256,256);
+  for (let i=0;i<1350;i++) {
+    const x=(i*73.619)%256,z=(i*29.351)%256;
+    ctx.fillStyle=i%2===0 ? dark : light;
+    ctx.globalAlpha=.055+i%9*.012;
+    ctx.fillRect(x,z,.75+i%3,.6+i%4*.42);
+  }
+  for (let i=0;i<11;i++) {
+    const y=18+i*25+Math.sin(i*7)*11;
+    ctx.strokeStyle=i%3===0 ? light : dark;
+    ctx.lineWidth=.45+(i%4)*.27;
+    ctx.globalAlpha=.14+(i%3)*.055;
+    ctx.beginPath();
+    for (let x=0;x<=256;x+=5) {
+      const wave=y+x*.29+Math.sin(x*.033+i)*10+Math.sin(x*.13+i*1.6)*2.2;
+      if (x===0) ctx.moveTo(x,wave);
+      else ctx.lineTo(x,wave);
+    }
+    ctx.stroke();
+  }
+  const texture=new T.CanvasTexture(canvas);
+  texture.colorSpace=T.SRGBColorSpace;
+  texture.wrapS=texture.wrapT=T.MirroredRepeatWrapping;
+  texture.anisotropy=8;
+  return new T.MeshStandardMaterial({map:texture,roughness:.67});
 }
 
 function batchRoom(room: T.Group) {
@@ -147,34 +281,62 @@ export function furniture(setting: Setting) {
   const group = new T.Group();
   const park = setting === 'park';
   const tabletop = material(park ? '#67736b' : '#735139');
-  const wood = material('#ffffff');
-  wood.map = grain(park ? '#55665a' : '#966547', park ? '#acb5a6' : '#523723');
+  const tableSurface = park ? stone('#737d73','#a4afa0','#465c53') :
+    new T.MeshStandardMaterial({map:grain('#966547','#523723'),roughness:.65});
   const ground = material(park ? '#3b5947' : '#453629');
-  group.add(box(11,.34,10.2,wood,0,-.32,0), box(100,.25,100,ground,0,-2.28,0));
+  group.add(mesh(new RoundedBoxGeometry(10.45,.34,9.7,4,.083),tableSurface,0,-.32,0),
+    box(100,.25,100,ground,0,-2.28,0));
   for (const x of [-4.2,4.2]) for (const z of [-3.8,3.8]) {
     group.add(box(.42,1.72,.45,tabletop,x,-1.3,z));
   }
-  const border = material(park ? '#303f39' : '#38271e', .49);
-  group.add(box(8.48,.19,8.48,border,0,-.14));
+  const border = park ? stone('#273932','#5a7368','#192923') :
+    new T.MeshStandardMaterial({map:grain('#513625','#281d1a'),roughness:.43});
+  const inlay = material(park ? '#a5b6a3' : '#b38752',.48,.32);
+  group.add(mesh(new RoundedBoxGeometry(8.62,.26,8.62,4,.067),border,0,-.162,0));
+  for (const edge of [-4.23,4.23]) {
+    group.add(box(8.47,.018,.014,inlay,0,-.032,edge));
+    group.add(box(.014,.018,8.47,inlay,edge,-.032,0));
+  }
   if (park) {
-    const path = material('#9b9981');
-    group.add(box(42,.055,3.8,path,0,-2.12,-9));
-    const bench = material('#825a3b');
-    for (const z of [-6.7,6.7]) {
-      group.add(box(3.3,.19,1.13,bench,0,-1.28,z),box(3.3,.67,.14,bench,0,-.89,z + Math.sign(z)*.52));
-      for (const x of [-1.22,1.22]) group.add(box(.15,.83,.72,border,x,-1.72,z));
+    const landscaping=new T.Group();
+    const path=[material('#aaa494'),material('#b1ad9d'),material('#9c9b8d')];
+    for (let row=0;row<3;row++) for (let col=-12;col<=12;col++) {
+      const slab=box(1.54,.052,1.23,path[(col+12+row*2)%3],col*1.58+(row%2)*.75,-2.12,-10+row*1.27);
+      landscaping.add(slab);
     }
-    const bark = material('#594532');
-    const leaves = ['#274838','#3c6448','#547755'].map(c=>material(c));
-    for (const [x,z,h] of [[-8,-4,5],[7,-8,6],[-12,-10,6],[2,-17,6],[11,-15,7],[-7,7,6]]) {
-      group.add(mesh(new T.CylinderGeometry(.19,.38,h,10),bark,x,h/2-2.2,z));
-      for (let i=0;i<6;i++) {
-        const angle = i * 2.4;
-        const canopy = mesh(new T.IcosahedronGeometry(1.7 + (i%3)*.3,1),leaves[i%3],
-          x+Math.cos(angle)*1.7,h-1.3+(i%3)*.47,z+Math.sin(angle)*1.7);
-        group.add(canopy);
+    const bench = new T.MeshStandardMaterial({map:grain('#8f5e3a','#493123'),roughness:.7});
+    const metal = material('#344840',.45,.42);
+    for (const z of [-6.7,6.7]) {
+      for (let i=0;i<4;i++) {
+        landscaping.add(box(3.3,.13,.23,bench,0,-1.28,z+(i-1.5)*.26));
+        landscaping.add(box(3.3,.14,.09,bench,0,-1.10+i*.17,z+Math.sign(z)*(.54+i*.035)));
+      }
+      for (const x of [-1.27,1.27]) {
+        landscaping.add(box(.13,.83,.20,metal,x,-1.73,z-.32),
+          box(.13,1.44,.19,metal,x,-1.40,z+Math.sign(z)*.49));
       }
     }
+    const bark = new T.MeshStandardMaterial({map:grain('#5d4738','#382e26'),roughness:.95});
+    const leaves=['#304f38','#4c6e42','#68854d','#819454'].map(c=>material(c));
+    for (const [x,z,h] of [[-7,-5,5.2],[7,-8,5.6],[-10,-12,6],[2,-17,6],[11,-15,7],[-8,7,6],[8,9,6]]) {
+      landscaping.add(mesh(new T.CylinderGeometry(.17,.40,h,13),bark,x,h/2-2.2,z));
+      for (let i=0;i<13;i++) {
+        const angle=i*2.399,spread=.55+(i%5)*.36;
+        const canopy=mesh(new T.IcosahedronGeometry(1.05+i%4*.25,2),leaves[i%4],
+          x+Math.cos(angle)*spread,h-1.5+(i%4)*.48,z+Math.sin(angle)*spread);
+        canopy.scale.set(1.12,.69+i%3*.13,1);
+        canopy.rotation.y=angle;
+        landscaping.add(canopy);
+      }
+    }
+    for (let i=0;i<19;i++) {
+      const bush=mesh(new T.IcosahedronGeometry(.70+i%4*.16,2),leaves[i%4],(i-9)*1.73,-1.64,-13+Math.sin(i*2.3)*.75);
+      bush.scale.set(1.48,.78,1);
+      landscaping.add(bush);
+    }
+    batchRoom(landscaping);
+    landscaping.traverse(object=>{ object.castShadow=false; });
+    group.add(landscaping);
   } else {
     const room = new T.Group();
     const wall = material('#655449');
