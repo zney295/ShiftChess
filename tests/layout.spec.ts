@@ -20,9 +20,26 @@ async function fitsScreen(page: Page, selectors: string[]) {
 test('click the piece and destination, then continue on a compact screen', async ({page})=>{
   await page.setViewportSize({width:1280,height:720});
   await page.goto('/');
-  await fitsScreen(page,['canvas','#start','#sound']);
-  await page.getByRole('button',{name:'Quay sự kiện và bắt đầu'}).click();
+  await fitsScreen(page,['#start','#mode']);
+  await expect(page.locator('canvas')).toHaveCount(0);
+  await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
+  await expect(page.locator('#start-screen')).toBeHidden();
+  await expect(page.getByRole('heading',{name:'Quay sự kiện'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Vào ván'})).toBeHidden();
+  for (const viewport of [{width:320,height:480},{width:667,height:375}]) {
+    await page.setViewportSize(viewport);
+    await fitsScreen(page,['#random-title','#wheel','#spin','#back']);
+  }
+  await page.setViewportSize({width:1280,height:720});
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.getByRole('button',{name:'Quay',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Vào ván'})).toBeHidden();
+  await expect(page.locator('#roll')).toHaveText(/Đổi chỗ|Dịch quân|Đổi kép/);
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await expect(page.locator('canvas')).toHaveCount(0);
+  await page.getByRole('button',{name:'Vào ván'}).click();
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
+  await expect(page.locator('#random-screen')).toBeHidden();
 
   const canvas=(await page.locator('canvas').boundingBox())!;
   const camera=new PerspectiveCamera(47,canvas.width/canvas.height,.1,80);
@@ -53,7 +70,8 @@ test('click the piece and destination, then continue on a compact screen', async
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
 
   await page.getByRole('button',{name:'Ván mới'}).click();
-  await fitsScreen(page,['canvas','#start','#mode']);
+  await expect(page.locator('canvas')).toBeHidden();
+  await fitsScreen(page,['#start','#mode']);
   await page.setViewportSize({width:320,height:480});
-  await fitsScreen(page,['canvas','#start','#mode']);
+  await fitsScreen(page,['#start','#mode']);
 });

@@ -1,4 +1,4 @@
-import { Chess, type Color, type Square } from 'chess.js';
+import type { Color, Square } from 'chess.js';
 import { GameAudio } from './audio';
 import type { Setting } from './models';
 import { effects, effectNames, Match, type Effect, type Mode } from './rules';
@@ -7,22 +7,14 @@ import './style.css';
 
 const host = document.querySelector<HTMLElement>('#app')!;
 host.innerHTML = `
-  <header class="masthead">
-    <div class="wordmark"><span class="crest" aria-hidden="true">♞</span> ShiftChess</div>
-    <div class="actions">
-      <button id="view" type="button" hidden>Toàn bàn</button>
-      <button id="sound" type="button" aria-pressed="true">Âm thanh</button>
-      <button id="settings" type="button" hidden>Ván mới</button>
-    </div>
-  </header>
-  <div class="layout">
-    <section id="viewport" class="viewport">
-      <div class="scene-tag" id="location">Công viên</div>
-      <div class="flash" id="flash" aria-hidden="true"></div>
-    </section>
-    <aside class="sidebar">
+  <section id="start-screen" class="menu-screen" aria-labelledby="start-title">
+    <div class="menu-card">
+      <header>
+        <span class="menu-crest" aria-hidden="true">♞</span>
+        <h1 id="start-title">ShiftChess</h1>
+        <p class="muted">Cờ vua 3D cho hai người chơi chung máy.</p>
+      </header>
       <form id="setup" class="setup">
-        <h1>Thiết lập ván</h1>
         <fieldset><legend>Bối cảnh</legend>
           <label><input type="radio" name="setting" value="park" checked> Công viên</label>
           <label><input type="radio" name="setting" value="library"> Thư viện</label>
@@ -35,11 +27,46 @@ host.innerHTML = `
             <option value="random">Bốc ngẫu nhiên chế độ</option>
           </select>
         </div>
-        <button class="primary" id="start" type="submit">Quay sự kiện và bắt đầu</button>
-        <output id="roll" aria-live="polite"></output>
-        <p class="muted">Hai người chung máy. Mỗi bên tự vào góc nhìn nhập vai khi đến lượt.</p>
+        <button class="primary" id="start" type="submit">Bắt đầu</button>
       </form>
-      <div id="game" hidden>
+    </div>
+  </section>
+  <section id="random-screen" class="menu-screen" aria-labelledby="random-title" hidden>
+    <div class="menu-card random-card">
+      <header>
+        <h1 id="random-title">Quay sự kiện</h1>
+        <p class="muted" id="random-summary"></p>
+      </header>
+      <div class="wheel-wrap" aria-hidden="true">
+        <div id="wheel" class="wheel"><b>↔</b><b>→</b><b>⇆</b></div>
+        <span class="wheel-needle"></span>
+        <span class="wheel-hub">SHIFT</span>
+      </div>
+      <output id="roll" aria-live="polite"></output>
+      <p id="roll-detail" class="muted"></p>
+      <div class="menu-actions">
+        <button id="back" type="button">Quay lại</button>
+        <button id="spin" class="primary" type="button">Quay</button>
+        <button id="enter" class="primary" type="button" hidden>Vào ván</button>
+      </div>
+    </div>
+  </section>
+  <section id="play-screen" class="play-screen" aria-label="Chơi cờ" hidden>
+  <header class="masthead">
+    <div class="wordmark"><span class="crest" aria-hidden="true">♞</span> ShiftChess</div>
+    <div class="actions">
+      <button id="view" type="button">Toàn bàn</button>
+      <button id="sound" type="button" aria-pressed="true">Âm thanh</button>
+      <button id="settings" type="button">Ván mới</button>
+    </div>
+  </header>
+  <div class="layout">
+    <section id="viewport" class="viewport playing">
+      <div class="scene-tag" id="location">Công viên</div>
+      <div class="flash" id="flash" aria-hidden="true"></div>
+    </section>
+    <aside class="sidebar">
+      <div id="game">
         <div class="match-status">
           <div class="turn" id="turn" aria-live="polite"></div>
           <p class="muted" id="rule"></p>
@@ -67,6 +94,7 @@ host.innerHTML = `
       </div>
     </aside>
   </div>
+  </section>
   <dialog id="promotion"><form method="dialog">
     <h2>Phong cấp</h2>
     <div><button value="q">Hậu</button><button value="r">Xe</button>
@@ -78,16 +106,11 @@ const get = <E extends HTMLElement>(id: string) => document.getElementById(id) a
 const viewport=get('viewport');
 const audio=new GameAudio();
 let stage: Stage;
-try {
-  stage=new Stage(viewport);
-} catch (error) {
-  get<HTMLButtonElement>('start').disabled=true;
-  get('roll').textContent='Trình duyệt không khởi tạo được WebGL 2.';
-  throw error;
-}
-
-const setup=get<HTMLFormElement>('setup'), game=get('game'), view=get<HTMLButtonElement>('view');
+const screens={start:get('start-screen'),random:get('random-screen'),play:get('play-screen')};
+const setup=get<HTMLFormElement>('setup'), view=get<HTMLButtonElement>('view');
 const sound=get<HTMLButtonElement>('sound'), settings=get<HTMLButtonElement>('settings');
+const spin=get<HTMLButtonElement>('spin'), enter=get<HTMLButtonElement>('enter'), back=get<HTMLButtonElement>('back');
+const wheel=get('wheel'), roll=get('roll'), detail=get('roll-detail');
 const picker=get<HTMLSelectElement>('piece'), targets=get('targets');
 const targetPicker=get<HTMLSelectElement>('target');
 const confirmMove=get<HTMLButtonElement>('confirm-move');
@@ -103,7 +126,9 @@ let selected: Square | undefined;
 let overhead=false;
 let busy=false;
 let setting: Setting='park';
+let mode: Mode='periodic';
 let message='';
+let rolledMatch: Match | undefined;
 
 const sideName=(side: Color)=>side==='w' ? 'Trắng' : 'Đen';
 const modeName=(mode: Match['mode'])=>mode==='periodic' ? 'Định kỳ' : 'Cuối ván';
@@ -219,7 +244,6 @@ async function choose(square: Square) {
   }
 }
 
-stage.onSquare=square=>void choose(square);
 targetPicker.addEventListener('change',()=>{
   confirmMove.disabled=busy || !targetPicker.value;
 });
@@ -248,50 +272,73 @@ settings.addEventListener('click',()=>{
   if (busy) return;
   match=undefined;
   selected=undefined;
-  setup.hidden=false;
-  game.hidden=view.hidden=settings.hidden=true;
-  viewport.classList.remove('playing');
-  get('roll').textContent='';
   stage.indicate(null);
-  stage.frame('w',undefined,true);
-  stage.sync(new Chess().board());
+  audio.stopAmbience();
+  showScreen('start',get('start'));
 });
-setup.addEventListener('change',()=>{
-  setting=new FormData(setup).get('setting') as Setting;
-  get('location').textContent=locationName(setting);
-  stage.setSetting(setting);
-});
-setup.addEventListener('submit',async event=>{
+
+function showScreen(active: keyof typeof screens, focus?: HTMLElement) {
+  for (const [name,screen] of Object.entries(screens)) screen.hidden=name!==active;
+  focus?.focus({preventScroll:true});
+}
+
+setup.addEventListener('submit',event=>{
   event.preventDefault();
-  const start=get<HTMLButtonElement>('start');
-  if (start.disabled) return;
-  start.disabled=true;
   const options=new FormData(setup);
-  const resolved=effects[Math.floor(Math.random()*effects.length)];
   setting=options.get('setting') as Setting;
-  const mode=options.get('mode') as Mode;
-  void audio.enable(setting).catch(()=>{});
-  const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const roll=get('roll');
-  for (let i=0;i<(reduced ? 0 : 7);i++) {
-    roll.textContent=effectNames[effects[i%effects.length]];
-    await new Promise(resolve=>setTimeout(resolve,55+i*17));
+  mode=options.get('mode') as Mode;
+  rolledMatch=undefined;
+  wheel.style.transform='';
+  roll.textContent='';
+  detail.textContent='Đổi chỗ · Dịch quân · Đổi kép';
+  get('random-summary').textContent=locationName(setting)+' · '+(mode==='random' ? 'Bốc thời điểm' : modeName(mode));
+  spin.hidden=spin.disabled=back.disabled=false;
+  enter.hidden=true;
+  showScreen('random',spin);
+});
+back.addEventListener('click',()=>showScreen('start',get('start')));
+spin.addEventListener('click',async ()=>{
+  if (spin.disabled) return;
+  spin.disabled=back.disabled=true;
+  const index=Math.floor(Math.random()*effects.length);
+  const effect=effects[index];
+  rolledMatch=new Match(mode,effect);
+  const end='rotate('+(1080-index*120)+'deg)';
+  roll.textContent='Đang quay…';
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    await wheel.animate([{transform:'rotate(0deg)'},{transform:end}],
+      {duration:1050,easing:'cubic-bezier(.15,.62,.18,1)'}).finished;
   }
-  roll.textContent=effectNames[resolved];
-  audio.cue();
-  if (!reduced) await new Promise(resolve=>setTimeout(resolve,380));
-  match=new Match(mode,resolved);
+  wheel.style.transform=end;
+  roll.textContent=effectNames[effect];
+  detail.textContent=effectText[effect];
+  get('random-summary').textContent=locationName(setting)+' · '+modeName(rolledMatch.mode);
+  spin.hidden=true;
+  enter.hidden=back.disabled=false;
+  enter.focus({preventScroll:true});
+});
+enter.addEventListener('click',()=>{
+  if (!rolledMatch || match) return;
+  showScreen('play');
+  if (!stage) {
+    try {
+      stage=new Stage(viewport);
+      stage.onSquare=square=>void choose(square);
+    } catch {
+      showScreen('random',back);
+      detail.textContent='Trình duyệt không khởi tạo được WebGL 2.';
+      return;
+    }
+  }
+  void audio.enable(setting).catch(()=>{});
+  match=rolledMatch;
   message='';
   selected=undefined;
   overhead=false;
   get('location').textContent=locationName(setting);
   stage.setSetting(setting);
   stage.sync(match.chess.board());
-  stage.frame('w');
-  setup.hidden=true;
-  game.hidden=view.hidden=settings.hidden=false;
-  viewport.classList.add('playing');
-  start.disabled=false;
+  stage.frame('w',undefined,false,true);
   draw();
+  picker.focus({preventScroll:true});
 });
-stage.sync(new Chess().board());

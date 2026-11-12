@@ -21,8 +21,7 @@ export class GameAudio {
     }
     await this.context.resume();
     this.master!.gain.value=this.muted ? 0 : .45;
-    this.ambience?.stop();
-    clearInterval(this.timer);
+    this.stopAmbience();
     const source=this.context.createBufferSource(), filter=this.context.createBiquadFilter(), gain=this.context.createGain();
     source.buffer=this.noise!;
     source.loop=true;
@@ -38,6 +37,12 @@ export class GameAudio {
         this.tone(1890,1490,.13,.023,'sine',.11);
       } else this.tap(.13,1200,.017);
     },7600);
+  }
+
+  stopAmbience() {
+    this.ambience?.stop();
+    this.ambience=undefined;
+    clearInterval(this.timer);
   }
 
   toggle() {

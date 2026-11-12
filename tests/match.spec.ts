@@ -5,10 +5,17 @@ test('two players see a capture, a countdown, and a SHIFT in the library', async
   page.on('pageerror', error=>errors.push(error.message));
   await page.addInitScript(()=>{ Math.random=()=>0; });
   await page.goto('/');
-  await expect(page.locator('canvas')).toBeVisible();
   await page.getByRole('radio',{name:'Thư viện'}).check();
+  await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
+  await expect(page.locator('#random-summary')).toHaveText('Thư viện · Định kỳ');
+  await page.getByRole('button',{name:'Quay lại'}).click();
+  await expect(page.getByRole('radio',{name:'Thư viện'})).toBeChecked();
+  await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
+  await page.getByRole('button',{name:'Quay',exact:true}).click();
+  await expect(page.locator('#roll')).toHaveText('Đổi chỗ');
+  await page.getByRole('button',{name:'Vào ván'}).click();
+  await expect(page.locator('canvas')).toBeVisible();
   await expect(page.locator('#location')).toHaveText('Thư viện');
-  await page.getByRole('button',{name:'Quay sự kiện và bắt đầu'}).click();
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
   const move = async (from: string,to: string,next: string) => {
     await page.locator('#piece').selectOption(from);

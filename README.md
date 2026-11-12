@@ -10,9 +10,9 @@ npm run build
 
 Mở URL Vite in ra. Bản build nằm trong `dist/`. Nén các tệp **bên trong** thư mục này để `index.html` nằm ở gốc ZIP khi tải lên itch.io.
 
-- Chọn Công viên hoặc Thư viện. Hai cảnh thay đổi bàn, đạo cụ, ánh sáng và âm thanh.
+- Ở màn **Bắt đầu**, chọn Công viên hoặc Thư viện. Hai cảnh thay đổi bàn, đạo cụ, ánh sáng và âm thanh.
 - Chọn Định kỳ (mỗi 3 vòng), Cuối ván (vòng 12 nếu ván còn tiếp diễn) hoặc bốc ngẫu nhiên chế độ.
-- Vòng quay chọn Đổi chỗ, Dịch quân hoặc Đổi kép. Game báo các ô một vòng trước. Đến hạn, hiệu ứng áp dụng lên quân đang ở ô đã đánh dấu. Tốt và vua không bị dời. Nếu thế cờ trước hoặc sau hiệu ứng có vua bị chiếu, sự kiện bị bỏ qua.
+- Ở màn **Quay sự kiện**, bấm **Quay** để chọn Đổi chỗ, Dịch quân hoặc Đổi kép, rồi bấm **Vào ván**. Game báo các ô một vòng trước. Đến hạn, hiệu ứng áp dụng lên quân đang ở ô đã đánh dấu. Tốt và vua không bị dời. Nếu thế cờ trước hoặc sau hiệu ứng có vua bị chiếu, sự kiện bị bỏ qua.
 - Click vào bàn cờ hoặc chọn quân và ô theo tọa độ. Dùng **Toàn bàn** để xem thế cờ. Khi ăn quân, bàn tay nhấc quân lên, gạt quân đối phương rồi đặt quân xuống.
 
 TypeScript + Three.js + Vite. `chess.js` kiểm tra luật cờ chuẩn, còn `src/rules.ts` điều phối lịch và kiểm tra thế cờ SHIFT. Mô hình, vân gỗ và âm thanh trong bản này đều được tạo từ mã nguồn. Phần hình ảnh và bàn tay hiện là mẫu dựng hình cho bản thử.
