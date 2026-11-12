@@ -10,9 +10,9 @@ npm run build
 
 Mở URL Vite in ra. Bản build nằm trong `dist/`. Nén các tệp **bên trong** thư mục này để `index.html` nằm ở gốc ZIP khi tải lên itch.io.
 
-- Ở màn **Bắt đầu**, chọn Công viên hoặc Thư viện. Hai cảnh thay đổi bàn, đạo cụ, ánh sáng và âm thanh.
-- Chọn Định kỳ (mỗi 3 vòng), Cuối ván (vòng 12 nếu ván còn tiếp diễn) hoặc bốc ngẫu nhiên chế độ.
-- Ở màn **Quay sự kiện**, bấm **Quay** để chọn Đổi chỗ, Dịch quân hoặc Đổi kép, rồi bấm **Vào ván**. Game báo các ô một vòng trước. Đến hạn, hiệu ứng áp dụng lên quân đang ở ô đã đánh dấu. Tốt và vua không bị dời. Nếu thế cờ trước hoặc sau hiệu ứng có vua bị chiếu, sự kiện bị bỏ qua.
+- Bấm **Bắt đầu → Quay** để chọn ngẫu nhiên Công viên hoặc Thư viện. Hai cảnh thay đổi bàn, đạo cụ, ánh sáng và âm thanh.
+- Sau khi bấm **Vào ván**, game công bố hiệu ứng SHIFT (Đổi chỗ, Dịch quân hoặc Đổi kép) và thời điểm kích hoạt (mỗi 3 vòng hoặc một lần ở vòng 12 nếu ván còn tiếp diễn).
+- Game báo các ô một vòng trước. Đến hạn, hiệu ứng áp dụng lên quân đang ở ô đã đánh dấu. Tốt và vua không bị dời. Nếu thế cờ trước hoặc sau hiệu ứng có vua bị chiếu, sự kiện bị bỏ qua.
 - Click vào bàn cờ hoặc chọn quân và ô theo tọa độ. Dùng **Toàn bàn** để xem thế cờ. Khi ăn quân, bàn tay nhấc quân lên, gạt quân đối phương rồi đặt quân xuống.
 - Nút **EN / VI** đổi ngôn ngữ giao diện ở bất kỳ màn nào. Game ghi nhớ lựa chọn trong trình duyệt.
 

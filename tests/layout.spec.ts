@@ -20,7 +20,7 @@ async function fitsScreen(page: Page, selectors: string[]) {
 test('click the piece and destination, then continue on a compact screen', async ({page})=>{
   await page.setViewportSize({width:1280,height:720});
   await page.goto('/');
-  await fitsScreen(page,['#start','#mode']);
+  await fitsScreen(page,['#start','#locale']);
   await expect(page.locator('canvas')).toHaveCount(0);
   await page.getByRole('button',{name:'Switch to English'}).click();
   await expect(page.getByRole('button',{name:'Start',exact:true})).toBeVisible();
@@ -29,7 +29,7 @@ test('click the piece and destination, then continue on a compact screen', async
   await page.getByRole('button',{name:'Chuyển sang tiếng Việt'}).click();
   await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
   await expect(page.locator('#start-screen')).toBeHidden();
-  await expect(page.getByRole('heading',{name:'Quay sự kiện'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Quay bản đồ'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Vào ván'})).toBeHidden();
   for (const viewport of [{width:320,height:480},{width:667,height:375}]) {
     await page.setViewportSize(viewport);
@@ -39,11 +39,13 @@ test('click the piece and destination, then continue on a compact screen', async
   await page.emulateMedia({reducedMotion:'no-preference'});
   await page.getByRole('button',{name:'Quay',exact:true}).click();
   await expect(page.getByRole('button',{name:'Vào ván'})).toBeHidden();
-  await expect(page.locator('#roll')).toHaveText(/Đổi chỗ|Dịch quân|Đổi kép/);
+  await expect(page.locator('#roll')).toHaveText(/^(Công viên|Thư viện)$/);
+  await expect(page.locator('#random-screen')).not.toContainText(/Đổi chỗ|Dịch quân|Đổi kép/);
   await page.emulateMedia({reducedMotion:'reduce'});
   await expect(page.locator('canvas')).toHaveCount(0);
   await page.getByRole('button',{name:'Vào ván'}).click();
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
+  await expect(page.locator('#shift-heading')).toHaveText('Luật ngẫu nhiên');
   await expect(page.locator('#random-screen')).toBeHidden();
 
   const canvas=(await page.locator('canvas').boundingBox())!;
@@ -78,7 +80,7 @@ test('click the piece and destination, then continue on a compact screen', async
 
   await page.getByRole('button',{name:'New game'}).click();
   await expect(page.locator('canvas')).toBeHidden();
-  await fitsScreen(page,['#start','#mode']);
+  await fitsScreen(page,['#start','#locale']);
   await page.setViewportSize({width:320,height:480});
-  await fitsScreen(page,['#start','#mode']);
+  await fitsScreen(page,['#start','#locale']);
 });

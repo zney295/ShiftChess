@@ -3,20 +3,22 @@ import { expect, test } from '@playwright/test';
 test('two players see a capture, a countdown, and a SHIFT in the library', async ({page}, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error=>errors.push(error.message));
-  await page.addInitScript(()=>{ Math.random=()=>0; });
   await page.goto('/');
-  await page.getByRole('radio',{name:'Thư viện'}).check();
   await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
-  await expect(page.locator('#random-summary')).toHaveText('Thư viện · Định kỳ');
+  await expect(page.getByRole('heading',{name:'Quay bản đồ'})).toBeVisible();
   await page.getByRole('button',{name:'Quay lại'}).click();
-  await expect(page.getByRole('radio',{name:'Thư viện'})).toBeChecked();
+  await expect(page.getByRole('button',{name:'Bắt đầu',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Bắt đầu',exact:true}).click();
+  await page.evaluate(()=>{ Math.random=()=>.75; });
   await page.getByRole('button',{name:'Quay',exact:true}).click();
-  await expect(page.locator('#roll')).toHaveText('Đổi chỗ');
+  await expect(page.locator('#roll')).toHaveText('Thư viện');
+  await expect(page.locator('#random-screen')).not.toContainText('Đổi chỗ');
+  await page.evaluate(()=>{ Math.random=()=>0; });
   await page.getByRole('button',{name:'Vào ván'}).click();
   await expect(page.locator('canvas')).toBeVisible();
   await expect(page.locator('#location')).toHaveText('Thư viện');
   await expect(page.locator('#turn')).toHaveText('Lượt Trắng');
+  await expect(page.locator('#rule')).toHaveText('Định kỳ mỗi 3 vòng · Đổi chỗ');
   const move = async (from: string,to: string,next: string) => {
     await page.locator('#piece').selectOption(from);
     await page.locator('#targets').getByRole('button',{name:to,exact:true}).click();

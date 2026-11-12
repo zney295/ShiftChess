@@ -2,7 +2,7 @@ import type { Square } from 'chess.js';
 import { GameAudio } from './audio';
 import { copy, type CopyKey, type Locale } from './copy';
 import type { Setting } from './models';
-import { effects, Match, type Mode } from './rules';
+import { effects, Match } from './rules';
 import { Stage } from './stage';
 import './style.css';
 
@@ -27,21 +27,7 @@ host.innerHTML = `
         <h1 id="start-title">ShiftChess</h1>
         <p class="muted" data-copy="subtitle"></p>
       </header>
-      <form id="setup" class="setup">
-        <fieldset class="settings-choices"><legend data-copy="setting"></legend>
-          <label><input type="radio" name="setting" value="park" checked><span data-copy="park"></span></label>
-          <label><input type="radio" name="setting" value="library"><span data-copy="library"></span></label>
-        </fieldset>
-        <div class="mode-control">
-          <label class="select-label" for="mode" data-copy="timing"></label>
-          <select id="mode" name="mode">
-            <option value="periodic" data-copy="periodicOption"></option>
-            <option value="late" data-copy="lateOption"></option>
-            <option value="random" data-copy="randomOption"></option>
-          </select>
-        </div>
-        <button class="primary" id="start" type="submit" data-copy="start"></button>
-      </form>
+      <button class="primary" id="start" type="button" data-copy="start"></button>
     </div>
     </div>
   </section>
@@ -50,7 +36,7 @@ host.innerHTML = `
       <div class="random-info">
         <header>
           <h1 id="random-title" data-copy="roulette"></h1>
-          <p class="muted" id="random-summary"></p>
+          <p class="muted" data-copy="mapHint"></p>
         </header>
         <output id="roll" aria-live="polite"></output>
         <p id="roll-detail" class="muted"></p>
@@ -61,9 +47,9 @@ host.innerHTML = `
         </div>
       </div>
       <div class="wheel-wrap" aria-hidden="true">
-        <div id="wheel" class="wheel"><b>↔</b><b>→</b><b>⇆</b></div>
+        <div id="wheel" class="wheel"><b>♧</b><b>▤</b></div>
         <span class="wheel-needle"></span>
-        <span class="wheel-hub">SHIFT</span>
+        <span class="wheel-hub" data-copy="map"></span>
       </div>
     </div>
   </section>
@@ -80,7 +66,7 @@ host.innerHTML = `
           <p class="muted" id="rule"></p>
         </div>
         <section class="event" data-label="event">
-          <p class="eyebrow">SHIFT</p>
+          <p class="eyebrow" id="shift-heading"></p>
           <p id="event" aria-live="polite"></p>
         </section>
         <section class="selection" data-label="coordinates">
@@ -115,7 +101,7 @@ const viewport=get('viewport');
 const audio=new GameAudio();
 let stage: Stage;
 const screens={start:get('start-screen'),random:get('random-screen'),play:get('play-screen')};
-const setup=get<HTMLFormElement>('setup'), view=get<HTMLButtonElement>('view');
+const view=get<HTMLButtonElement>('view');
 const sound=get<HTMLButtonElement>('sound'), settings=get<HTMLButtonElement>('settings');
 const spin=get<HTMLButtonElement>('spin'), enter=get<HTMLButtonElement>('enter'), back=get<HTMLButtonElement>('back');
 const wheel=get('wheel'), roll=get('roll'), detail=get('roll-detail');
@@ -133,24 +119,20 @@ let match: Match | undefined;
 let selected: Square | undefined;
 let overhead=false;
 let busy=false;
-let setting: Setting='park';
-let mode: Mode='periodic';
+const maps: Setting[]=['park','library'];
+let setting: Setting | undefined;
 let message: CopyKey | undefined;
-let rolledMatch: Match | undefined;
 let rollState: 'waiting' | 'spinning' | 'ready' | 'error' = 'waiting';
 
 function drawRoulette() {
-  const timing=rollState==='ready' || rollState==='error' ? rolledMatch?.mode : mode;
-  get('random-summary').textContent=t(setting)+' · '+t(!timing || timing==='random' ? 'randomTiming' : timing);
   roll.textContent=rollState==='spinning' ? t('spinning')
-    : rolledMatch && (rollState==='ready' || rollState==='error') ? t(rolledMatch.effect) : '';
+    : setting && (rollState==='ready' || rollState==='error') ? t(setting) : '';
   detail.textContent=rollState==='error' ? t('webgl')
-    : rollState==='ready' && rolledMatch ? t(`${rolledMatch.effect}Text`)
-    : effects.map(t).join(' · ');
+    : rollState==='ready' ? t('mapReady') : '';
 }
 
 function draw(keepTarget=false) {
-  if (!match) return;
+  if (!match || !setting) return;
   const {chess,pending,plies,effect}=match;
   const side=chess.turn();
   const mate=chess.isCheckmate(), ended=match.isEnded();
@@ -160,6 +142,7 @@ function draw(keepTarget=false) {
   get('turn').textContent=mate ? t(side==='w' ? 'blackWins' : 'whiteWins') :
     ended ? t('draw') : t(side==='w' ? 'whiteTurn' : 'blackTurn')+(king ? ' · '+t('check') : '');
   get('rule').textContent=t(match.mode)+' · '+t(effect);
+  get('shift-heading').textContent=plies===0 ? t('randomRule') : 'SHIFT';
   get('location').textContent=t(setting);
   stage.canvas.setAttribute('aria-label',t('board'));
   const event=get('event');
@@ -319,12 +302,8 @@ function showScreen(active: keyof typeof screens, focus?: HTMLElement) {
   focus?.focus({preventScroll:true});
 }
 
-setup.addEventListener('submit',event=>{
-  event.preventDefault();
-  const options=new FormData(setup);
-  setting=options.get('setting') as Setting;
-  mode=options.get('mode') as Mode;
-  rolledMatch=undefined;
+get('start').addEventListener('click',()=>{
+  setting=undefined;
   wheel.style.transform='';
   rollState='waiting';
   drawRoulette();
@@ -336,10 +315,8 @@ back.addEventListener('click',()=>showScreen('start',get('start')));
 spin.addEventListener('click',async ()=>{
   if (spin.disabled) return;
   spin.disabled=back.disabled=true;
-  const index=Math.floor(Math.random()*effects.length);
-  const effect=effects[index];
-  rolledMatch=new Match(mode,effect);
-  const end='rotate('+(1080-index*120)+'deg)';
+  const index=Math.floor(Math.random()*maps.length);
+  const end='rotate('+(1080-index*180)+'deg)';
   rollState='spinning';
   drawRoulette();
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -347,6 +324,7 @@ spin.addEventListener('click',async ()=>{
       {duration:1050,easing:'cubic-bezier(.15,.62,.18,1)'}).finished;
   }
   wheel.style.transform=end;
+  setting=maps[index];
   rollState='ready';
   drawRoulette();
   spin.hidden=true;
@@ -354,7 +332,7 @@ spin.addEventListener('click',async ()=>{
   enter.focus({preventScroll:true});
 });
 enter.addEventListener('click',()=>{
-  if (!rolledMatch || match) return;
+  if (!setting || match) return;
   showScreen('play');
   if (!stage) {
     try {
@@ -367,8 +345,9 @@ enter.addEventListener('click',()=>{
       return;
     }
   }
+  const effect=effects[Math.floor(Math.random()*effects.length)];
+  match=new Match('random',effect);
   void audio.enable(setting).catch(()=>{});
-  match=rolledMatch;
   message=undefined;
   selected=undefined;
   overhead=false;
