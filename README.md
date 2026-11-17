@@ -1,27 +1,40 @@
 # ShiftChess
 
-Biến thể cờ vua 3D cho GitHub Game Off 2026, chủ đề **SHIFT**. Hai người chơi trên cùng một máy, mặc định nhìn từ phía của mình. Chọn quân để camera theo quân khi đi hoặc ăn.
+Cờ vua 3D chủ đề SHIFT cho GitHub Game Off 2026. Chơi với bot, hai người cùng máy, hoặc online bằng mã phòng/ghép nhanh. Bản đồ Công viên hoặc Thư viện được chọn ngẫu nhiên.
 
 ```sh
 npm ci
-npm run dev
 npm run build
+npm start
 ```
 
-Mở URL Vite in ra. Bản build nằm trong `dist/`. Nén các tệp **bên trong** thư mục này để `index.html` nằm ở gốc ZIP khi tải lên itch.io.
+Mở `http://127.0.0.1:48700`. Backend phục vụ cả game và WebSocket. Khi phát triển giao diện dùng thêm `npm run dev`.
 
-- Bấm **Bắt đầu → Quay** để chọn ngẫu nhiên Công viên hoặc Thư viện. Hai cảnh thay đổi bàn, đạo cụ, ánh sáng và âm thanh.
-- Sau khi bấm **Vào ván**, game công bố hiệu ứng SHIFT (Đổi chỗ, Dịch quân hoặc Đổi kép) và thời điểm kích hoạt (mỗi 3 vòng hoặc một lần ở vòng 12 nếu ván còn tiếp diễn).
-- Game báo các ô một vòng trước. Đến hạn, hiệu ứng áp dụng lên quân đang ở ô đã đánh dấu. Tốt và vua không bị dời. Nếu thế cờ trước hoặc sau hiệu ứng có vua bị chiếu, sự kiện bị bỏ qua.
-- Click vào bàn cờ hoặc chọn quân và ô theo tọa độ. Dùng **Toàn bàn** để xem thế cờ. Khi ăn quân, bàn tay nhấc quân lên, gạt quân đối phương rồi đặt quân xuống.
-- Nút **EN / VI** đổi ngôn ngữ giao diện ở bất kỳ màn nào. Game ghi nhớ lựa chọn trong trình duyệt.
+## Luồng chơi
 
-Nền màn Bắt đầu được vẽ bằng Canvas 2D và tôn trọng cài đặt giảm chuyển động.
+- Menu → chọn chế độ → nhận map và SHIFT chung → xác nhận → chơi → kết quả/tái đấu.
+- Bot có Dễ/Thường/Khó, chạy trong Web Worker; tìm nước bằng iterative deepening và mô phỏng SHIFT đã thông báo. Đây là bot riêng cho biến thể, chưa có Elo hoặc sức cờ đã được đo.
+- Online: tạo/vào phòng mã 6 ký tự, hai bên sẵn sàng; hoặc ghép nhanh. Máy chủ kiểm tra nước đi, chọn map/SHIFT, đồng bộ trạng thái và kết quả. Tái đấu đổi màu quân.
+- Mỗi trận có **một SHIFT chung** (Đổi chỗ, Dịch quân hoặc Đổi kép), công bố cho cả hai trước nước đầu. Không có lõi riêng từng người. SHIFT định kỳ mỗi 3 vòng, đánh dấu ô trước 2 nước. Vua/Tốt không bị dời; sự kiện gây chiếu hoặc không hợp lệ sẽ được bỏ qua.
+- Camera giữ ổn định lúc chọn quân, theo quân khi đi/ăn. Khi ăn quân, bàn tay nhấc quân lên và gạt đối phương. Hover, dấu ô đi/ăn và lựa chọn tọa độ giúp tương tác rõ hơn.
+- Màn chơi chỉ giữ bàn cờ, lượt đi và SHIFT. Hướng dẫn, tọa độ, lịch sử, menu và cài đặt mở riêng. Có EN/VI, âm lượng hiệu ứng/môi trường, đồ họa thấp/cao và toàn màn hình.
+- Esc mở menu/đóng bảng; F toàn màn hình; V đổi góc nhìn; M tắt/bật âm; G tọa độ; H lịch sử; ? hướng dẫn. Phím tắt không can thiệp vào ô nhập.
 
-TypeScript + Three.js + Vite. `chess.js` kiểm tra luật cờ chuẩn, còn `src/rules.ts` điều phối lịch và kiểm tra thế cờ SHIFT. Mô hình, vân gỗ và âm thanh trong bản này đều được tạo từ mã nguồn. Phần hình ảnh và bàn tay hiện là mẫu dựng hình cho bản thử.
+## VPS và bản itch.io
 
-Chạy `npm test` để kiểm tra luật. Với Chromium đã cài qua `npx playwright install chromium`, chạy `npm run test:browser` để thử luồng hai người chơi.
+[Hướng dẫn backend/VPS](docs/backend.md): Docker Compose + Caddy HTTPS, SQLite volume, sao lưu, giao thức và giới hạn vận hành. Backend được kiểm tra local; DNS/TLS và image Docker cần kiểm chứng khi đưa lên VPS.
 
-## Làm việc với Antigravity
+Frontend tĩnh nằm trong `dist/`. Nén **nội dung** thư mục để `index.html` ở gốc ZIP khi upload itch.io. Bot và chơi chung máy chạy độc lập; online cần backend. Khi frontend khác domain, cấu hình `VITE_SERVER_URL` khi build và `ALLOWED_ORIGINS` ở server. Quyền fullscreen phụ thuộc trình duyệt/iframe.
 
-Trong thư mục repo, chạy `agy --sandbox` rồi dùng một đầu việc trong [docs/agy.md](docs/agy.md). Mỗi đầu việc ghi rõ tệp liên quan và cách kiểm tra trước khi gộp.
+## Kiểm tra
+
+```sh
+npm test
+npm run test:browser
+```
+
+Browser test cần Chromium (`npx playwright install chromium`) hoặc `PLAYWRIGHT_CHANNEL=msedge` khi dùng Edge. Test gồm click trên bàn, SHIFT, bot, phòng hai trình duyệt, reconnect/tái đấu, phím tắt và responsive.
+
+TypeScript, Three.js, chess.js, Vite, Node.js 24.18+, ws và SQLite. Model, vân gỗ, âm thanh và hình nền Canvas 2D hiện được tạo bằng mã nguồn. Model/bàn tay vẫn là asset procedural; chưa thay bằng bộ GLB nghệ sĩ dựng, chưa có nhạc thu sẵn. Tôn trọng thiết lập giảm chuyển động.
+
+Các đầu việc Antigravity tham khảo tại [docs/agy.md](docs/agy.md).

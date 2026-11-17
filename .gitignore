@@ -4,3 +4,5 @@ playwright-report/
 test-results/
 *.log
 .env*
+data/
+*.sqlite*

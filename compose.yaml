@@ -1,0 +1,42 @@
+services:
+  game:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 48700
+      DATABASE_PATH: /app/data/shiftchess.sqlite
+      ALLOWED_ORIGINS: https://${DOMAIN:?Set DOMAIN to your hostname}${EXTRA_ORIGINS:-}
+      TRUST_PROXY: 1
+    volumes:
+      - game-data:/app/data
+    expose:
+      - "48700"
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to your hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      game:
+        condition: service_healthy
+volumes:
+  game-data:
+  caddy-data:
+  caddy-config:
