@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { clickMove } from "./board";
 
 test("two players see a capture, a countdown, and a SHIFT in the library", async ({
   page,
@@ -18,10 +19,7 @@ test("two players see a capture, a countdown, and a SHIFT in the library", async
   await expect(page.locator("#rule")).toContainText("Định kỳ mỗi 3 vòng");
   await page.locator("#accept-shift").click();
   const move = async (from: string, to: string, next: string) => {
-    await page.locator('[data-open="moves-dialog"]').click();
-    await page.locator("#piece").selectOption(from);
-    await page.locator("#target").selectOption(to);
-    await page.locator("#confirm-move").click();
+    await clickMove(page, from, to);
     await expect(page.locator("#turn")).toHaveText(next);
   };
   await move("e2", "e4", "Lượt Đen");
@@ -30,6 +28,8 @@ test("two players see a capture, a countdown, and a SHIFT in the library", async
   await expect(page.locator("#log")).toContainText("exd5");
   await move("g8", "f6", "Lượt Trắng");
   await expect(page.locator("#event")).toContainText("a8 ↔ b8");
+  await expect(page.locator("#event .pair")).toHaveAttribute("data-pair", "A");
+  await expect(page.locator(".event")).toHaveAttribute("data-phase", "pending");
   await expect(page.locator("#event")).toContainText("Còn 2 nước");
   await page.getByRole("button", { name: "Switch to English" }).click();
   await expect(page.locator("#event")).toContainText("2 moves left");
@@ -39,7 +39,7 @@ test("two players see a capture, a countdown, and a SHIFT in the library", async
   await expect(page.locator("#event")).toContainText("Còn 1 nước");
   await move("b8", "c6", "Lượt Trắng");
   await expect(page.locator("#event")).toContainText("SHIFT đã đổi vị trí.");
-  await page.getByRole("button", { name: "Toàn bàn" }).click();
-  await expect(page.getByRole("button", { name: "Nhập vai" })).toBeVisible();
+  await page.getByRole("button", { name: "Nhìn thẳng" }).click();
+  await expect(page.getByRole("button", { name: "Góc nghiêng" })).toBeVisible();
   expect(errors).toEqual([]);
 });

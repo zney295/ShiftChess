@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { PerspectiveCamera, Vector3 } from "three";
+import { boardPoint } from "./board";
 
 async function fitsScreen(page: Page, selectors: string[]) {
   const { width, height } = page.viewportSize()!;
@@ -49,38 +49,29 @@ test("click the piece and destination, then continue on a compact screen", async
   await page.locator("#accept-shift").click();
   await expect(page.locator("#turn")).toHaveText("Lượt Trắng");
   await expect(page.locator("#shift-heading")).toHaveText(/SHIFT/);
-  const canvas = (await page.locator("#viewport canvas").boundingBox())!;
-  const camera = new PerspectiveCamera(
-    47,
-    canvas.width / canvas.height,
-    0.1,
-    80,
-  );
-  async function clickWorld(x: number, y: number, z: number) {
-    await page.evaluate(
-      () =>
-        new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        ),
-    );
-    camera.updateMatrixWorld();
-    const pos = new Vector3(x, y, z).project(camera);
-    await page.mouse.click(
-      canvas.x + ((pos.x + 1) * canvas.width) / 2,
-      canvas.y + ((1 - pos.y) * canvas.height) / 2,
-    );
-  }
-  camera.position.set(0, 5.9, 8.65);
-  camera.lookAt(0, 0.26, 0);
-  await clickWorld(0.5, 0.73, 2.5); // Head of the pawn on e2.
+  const head = await boardPoint(page, "e2", { height: 0.73 });
+  await page.mouse.click(head.x, head.y);
   await expect(page.locator("#piece")).toHaveValue("e2");
-
-  await clickWorld(0.5, 0.004, 0.5); // e4 tile.
-  await expect(page.locator("#turn")).toHaveText("Lượt Đen",{timeout:15000});
-  await page.getByRole("button", { name: "Toàn bàn" }).click();
-  await expect(page.getByRole("button", { name: "Nhập vai" })).toBeVisible();
+  const e4 = await boardPoint(page, "e4");
+  await page.mouse.click(e4.x, e4.y);
+  await expect(page.locator("#turn")).toHaveText("Lượt Đen");
+  const e7 = await boardPoint(page, "e7", { height: 0.45 });
+  const e5 = await boardPoint(page, "e5");
+  await page.mouse.move(e7.x, e7.y);
+  await page.mouse.down();
+  await page.mouse.move(e4.x, e4.y, { steps: 5 });
+  await page.mouse.up(); // Illegal drop returns the pawn to e7.
+  await expect(page.locator("#piece")).toHaveValue("e7");
+  await expect(page.locator("#turn")).toHaveText("Lượt Đen");
+  await page.mouse.move(e7.x, e7.y);
+  await page.mouse.down();
+  await page.mouse.move(e5.x, e5.y, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.locator("#turn")).toHaveText("Lượt Trắng");
+  await page.getByRole("button", { name: "Nhìn thẳng" }).click();
+  await expect(page.getByRole("button", { name: "Góc nghiêng" })).toBeVisible();
   await page.getByRole("button", { name: "Switch to English" }).click();
-  await expect(page.locator("#turn")).toHaveText("Black to move");
+  await expect(page.locator("#turn")).toHaveText("White to move");
 
   for (const viewport of [
     { width: 360, height: 640 },
@@ -94,7 +85,7 @@ test("click the piece and destination, then continue on a compact screen", async
       "#menu",
       "#event",
       "#locale",
-      ".game-tools",
+      ".history-link",
     ]);
   }
   await page.keyboard.press("g");
@@ -104,10 +95,10 @@ test("click the piece and destination, then continue on a compact screen", async
     "#target",
     "#confirm-move",
   ]);
-  await page.locator("#piece").selectOption("e7");
-  await page.locator("#target").selectOption("e5");
+  await page.locator("#piece").selectOption("g1");
+  await page.locator("#target").selectOption("f3");
   await page.getByRole("button", { name: "Move", exact: true }).click();
-  await expect(page.locator("#turn")).toHaveText("White to move");
+  await expect(page.locator("#turn")).toHaveText("Black to move");
 
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "New game" }).click();

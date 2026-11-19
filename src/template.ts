@@ -62,27 +62,18 @@ export const template = `
   <section id="play-screen" class="play-screen" data-label="play" hidden>
   <div class="layout">
     <section id="viewport" class="viewport playing">
-      <div class="scene-tag" id="location"></div>
-      <div class="flash" id="flash" aria-hidden="true"></div>
       <p id="board-toast" class="board-toast" role="status" hidden></p>
-      <button id="shift-info" class="shift-info" data-copy="sharedShift"></button>
     </section>
     <aside class="sidebar">
-      <div id="game">
-        <div class="match-status">
-          <div class="turn" id="turn" aria-live="polite"></div>
-        </div>
-        <section class="event" data-label="event">
-          <p class="eyebrow" id="shift-heading"></p>
-          <p id="event" aria-live="polite"></p>
-        </section>
+      <div class="match-status">
+        <div class="turn" id="turn" aria-live="polite"></div>
+        <button class="history-link" data-open="history-dialog" data-copy="recent" aria-keyshortcuts="h"></button>
       </div>
+      <section class="event" data-label="event">
+        <button id="shift-info" type="button" data-label="sharedShift"><span id="shift-heading"></span></button>
+        <p id="event" aria-live="polite"></p>
+      </section>
     </aside>
-    <nav class="game-tools" data-label="tools">
-      <button data-open="moves-dialog" data-copy="coordinates" aria-keyshortcuts="g"></button>
-      <button data-open="history-dialog" data-copy="recent" aria-keyshortcuts="h"></button>
-      <button data-open="help-dialog" data-copy="help" aria-keyshortcuts="?"></button>
-    </nav>
   </div>
   </section>
   <dialog id="moves-dialog" class="game-dialog" data-label="coordinates">
@@ -114,11 +105,15 @@ export const template = `
   <dialog id="menu-dialog" class="game-dialog" data-label="menu">
     <div class="dialog-head"><h2 data-copy="menu"></h2><button data-close data-label="close">×</button></div>
     <p id="rule" class="muted"></p>
-    <p id="match-identity" class="muted"></p>
+    <p class="muted"><span id="match-identity"></span> · <span id="location"></span></p>
     <button class="primary" data-close data-copy="resume"></button>
     <button id="open-preferences" data-copy="preferences"></button>
     <button id="resign" type="button" data-copy="resign"></button>
     <button id="settings" type="button" data-copy="restart"></button>
+    <div class="game-tools">
+      <button data-open="moves-dialog" data-copy="coordinates" aria-keyshortcuts="g"></button>
+      <button data-open="help-dialog" data-copy="help" aria-keyshortcuts="?"></button>
+    </div>
   </dialog>
   <dialog id="preferences-dialog" class="game-dialog" data-label="preferences">
     <div class="dialog-head"><h2 data-copy="preferences"></h2><button data-close data-label="close">×</button></div>

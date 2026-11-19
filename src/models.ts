@@ -49,10 +49,10 @@ const proportions: Record<PieceSymbol, [number, number]> = {
   p:[.92,.99], r:[1.03,1.02], n:[1,1.08], b:[.98,1.05], q:[1.02,1.11], k:[1.07,1.11],
 };
 const pieceSurfaces = {
-  w: new T.MeshPhysicalMaterial({color:'#e4bf86',roughness:.33,clearcoat:.61,clearcoatRoughness:.23}),
-  b: new T.MeshPhysicalMaterial({color:'#382c2b',roughness:.33,clearcoat:.58,clearcoatRoughness:.21}),
+  w: new T.MeshStandardMaterial({color:'#e6d7b9',roughness:.48}),
+  b: new T.MeshStandardMaterial({color:'#484a51',roughness:.42}),
 };
-const trim = { w: material('#b77938',.34,.55), b: material('#967153',.34,.51) };
+const trim = { w: material('#927851',.48), b: material('#717883',.43) };
 const turned = (profile: Profile) => new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),72);
 const geometries = Object.fromEntries(Object.entries(profiles).map(([type, profile]) => [type,
   turned([...pedestal,...profile,[0,profile.at(-1)![1]]]),
@@ -167,6 +167,25 @@ export function pieceModel(type: PieceSymbol, color: Color) {
     result.add(head);
   }
   const [width,height]=proportions[type];
+  const parts = new Map<T.Material, T.BufferGeometry[]>();
+  result.updateMatrixWorld(true);
+  result.traverse((child) => {
+    if (!(child instanceof T.Mesh)) return;
+    const surface = child.material as T.Material;
+    const geometry = child.geometry.clone().applyMatrix4(child.matrixWorld);
+    if (!geometry.index) {
+      const count = geometry.getAttribute('position').count;
+      geometry.setIndex(Array.from({ length: count }, (_, index) => index));
+    }
+    const geometries = parts.get(surface) ?? [];
+    geometries.push(geometry);
+    parts.set(surface, geometries);
+  });
+  result.clear();
+  for (const [surface, geometries] of parts) {
+    result.add(mesh(mergeGeometries(geometries), surface));
+    geometries.forEach((geometry) => geometry.dispose());
+  }
   result.scale.set(width,height,width);
   return result;
 }

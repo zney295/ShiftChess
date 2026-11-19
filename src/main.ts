@@ -1,7 +1,7 @@
 import type { Color, Move, Square } from "chess.js";
 import { GameAudio } from "./audio";
 import { copy, type CopyKey, type Locale } from "./copy";
-import { effects, Match, type Effect } from "./rules";
+import { effects, Match, movesShiftPair, type Effect, type Shift } from "./rules";
 import { Connection, type Room } from "./network";
 import type { Difficulty } from "./bot";
 import type { Stage } from "./stage";
@@ -45,6 +45,10 @@ let mode: "local" | "bot" | "online" = "local",
 let message: CopyKey | undefined,
   worker: Worker | undefined,
   generation = 0;
+let lastMove: Move | undefined;
+let botThinking = false;
+let botReply: Pick<Move, "from" | "to" | "promotion"> | undefined;
+let legalCache: { match: Match; plies: number; moves: Move[] } | undefined;
 let network: Connection | undefined,
   room: Room | undefined,
   ownColor: Color = "w",
@@ -77,13 +81,13 @@ function toast(key: CopyKey) {
 }
 const ended = () => Boolean(match?.isEnded() || forcedResult);
 const cameraSide = (): Color =>
-  mode === "local" ? (match?.chess.turn() ?? "w") : ownColor;
-const mayPlay = () =>
+  mode === "local" ? "w" : ownColor;
+const mayPlay = (over = ended()) =>
   Boolean(
     match &&
     accepted &&
     !busy &&
-    !ended() &&
+    !over &&
     (mode === "local" || match.chess.turn() === ownColor) &&
     (mode !== "online" ||
       (status === "connected" &&
@@ -91,35 +95,81 @@ const mayPlay = () =>
         room.players.every((p) => p.connected))),
   );
 
+function drawShift(
+  pending: Shift | null,
+  over: boolean,
+  beforeShift?: ReturnType<Match["chess"]["board"]>,
+) {
+  if (!match) return;
+  const { chess, plies, effect, mode: timing } = match;
+  const event = get("event");
+  const panel = event.parentElement!;
+  panel.dataset.phase = beforeShift ? "active" : pending ? "pending" : "idle";
+  event.replaceChildren();
+  get("shift-heading").textContent = "SHIFT · " + t(effect);
+  if (pending && !over) {
+    pending.pairs.forEach(([a, b], i) => {
+      const mark = document.createElement("strong");
+      mark.className = i ? "pair alternate" : "pair";
+      mark.dataset.pair = i ? "B" : "A";
+      const getPiece = (square: Square) => beforeShift
+        ? beforeShift[8 - Number(square[1])][square.charCodeAt(0) - 97]
+        : chess.get(square);
+      const first = getPiece(a);
+      const second = getPiece(b);
+      if (beforeShift && !movesShiftPair(pending.effect, first ?? undefined, second ?? undefined)) return;
+      const arrow = effect === "slide" && Boolean(first) !== Boolean(second)
+        ? (first ? " → " : " ← ") : " ↔ ";
+      mark.textContent = a + arrow + b;
+      event.append(mark);
+    });
+    const count = document.createElement("span");
+    const n = pending.at - plies;
+    count.textContent = beforeShift ? t("shifting") : t(n === 1 ? "oneMove" : "manyMoves")
+      .replace("{n}", String(n));
+    event.append(count);
+    return;
+  }
+  if (over || message) {
+    event.textContent = t(message ?? "finished");
+    return;
+  }
+  const until = timing === "periodic" ? 6 - plies % 6 : 24 - plies;
+  event.textContent = until > 0
+    ? t("nextShift").replace("{n}", String(until))
+    : t(`${effect}Text`);
+}
+
 function draw(keepTarget = false) {
   if (!match || !stage) return;
   const { chess, pending, plies, effect } = match,
     side = chess.turn();
+  const over = ended();
+  const playable = mayPlay(over);
   const king = chess.isCheck()
     ? chess
         .board()
         .flat()
         .find((p) => p?.type === "k" && p.color === side)
     : undefined;
-  const squares = [
-    ...new Set(
-      selected && !ended()
-        ? chess.moves({ square: selected, verbose: true }).map((m) => m.to)
-        : [],
-    ),
-  ];
-  get("turn").textContent = forcedResult
+  if (playable && (legalCache?.match !== match || legalCache.plies !== plies))
+    legalCache = { match, plies, moves: chess.moves({ verbose: true }) };
+  const legal = playable ? legalCache!.moves : [];
+  const squares = [...new Set(legal.filter((move) => move.from === selected).map((move) => move.to))];
+  const turn = get("turn");
+  turn.dataset.side = side;
+  turn.textContent = forcedResult
     ? resultTitle(forcedResult.winner)
-    : chess.isCheckmate()
+    : over && chess.isCheckmate()
       ? t(side === "w" ? "blackWins" : "whiteWins")
-      : ended()
+      : over
         ? t("draw")
-        : t(side === "w" ? "whiteTurn" : "blackTurn") +
+        : botThinking && side === "b"
+          ? t("thinking")
+          : t(side === "w" ? "whiteTurn" : "blackTurn") +
           (king ? " · " + t("check") : "");
   get("rule").textContent =
     t("sharedShift") + " · " + t(effect) + " · " + t(match.mode);
-  get("shift-heading").textContent = "SHIFT · " + t(effect);
-  get("shift-heading").dataset.tier = effect;
   get("location").textContent = t(setting);
   get("match-identity").textContent =
     mode === "local"
@@ -130,38 +180,21 @@ function draw(keepTarget = false) {
         " · " +
         t(ownColor === "w" ? "yourWhite" : "yourBlack");
   stage.canvas.setAttribute("aria-label", t("board"));
-  const event = get("event");
-  event.replaceChildren();
-  if (pending && !ended()) {
-    pending.pairs.forEach(([a, b], i) => {
-      const mark = document.createElement("strong");
-      mark.className = i ? "pair alternate" : "pair";
-      mark.textContent = a + " ↔ " + b;
-      event.append(mark);
-    });
-    const count = document.createElement("span");
-    const n = pending.at - plies;
-    count.textContent = t(n === 1 ? "oneMove" : "manyMoves").replace(
-      "{n}",
-      String(n),
-    );
-    event.append(count);
-  } else
-    event.textContent = t(message ?? (ended() ? "finished" : `${effect}Text`));
+  drawShift(pending, over);
   const previous = keepTarget ? targetPicker.value : "";
-  const possible = new Set(chess.moves({ verbose: true }).map((m) => m.from));
+  const possible = new Set(legal.map((m) => m.from));
   picker.replaceChildren(new Option(t("pickPiece"), ""));
   for (const p of chess.board().flat())
     if (p?.color === side && possible.has(p.square))
       picker.add(new Option(t(p.type) + " " + p.square, p.square));
   picker.value = selected ?? "";
-  picker.disabled = !mayPlay();
+  picker.disabled = !playable;
   targetPicker.replaceChildren(
     new Option(t("pickTarget"), ""),
     ...squares.map((s) => new Option(s, s)),
   );
   targetPicker.value = previous;
-  targetPicker.disabled = !mayPlay() || !squares.length;
+  targetPicker.disabled = !playable || !squares.length;
   button("confirm-move").disabled =
     targetPicker.disabled || !targetPicker.value;
   get("log").replaceChildren(
@@ -177,14 +210,16 @@ function draw(keepTarget = false) {
   );
   button("view").textContent = t(overhead ? "rider" : "overview");
   button("view").disabled = busy;
-  button("resign").disabled = ended() || busy || !accepted;
+  button("resign").disabled = over || busy || !accepted;
   stage.indicate(
-    ended() ? null : pending,
+    over ? null : pending,
     selected,
-    mayPlay() ? squares : [],
+    squares,
     king?.square,
+    lastMove,
+    message === "shiftApplied",
   );
-  stage.setInteraction(mayPlay(), chess.turn());
+  stage.setInteraction(playable, side);
 }
 function resultTitle(winner: Color | null) {
   return t(
@@ -251,7 +286,7 @@ async function ensureStage() {
   if (stage) return;
   const { Stage } = await (stageLoader ??= import("./stage"));
   stage = new Stage(get("viewport"));
-  stage.onSquare = (s) => void choose(s);
+  stage.onSquare = (s, keepSelected) => void choose(s, keepSelected);
   stage.quality(get<HTMLSelectElement>("quality").value === "high");
   stage.canvas.tabIndex = 0;
   stage.canvas.addEventListener("webglcontextlost", (event) => {
@@ -266,9 +301,10 @@ async function prepare() {
   try {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await ensureStage();
+    lastMove = undefined;
     stage!.setSetting(setting);
     stage!.sync(match!.chess.board());
-    stage!.frame(cameraSide(), undefined, overhead, true);
+    stage!.frame(cameraSide(), overhead);
     void audio.enable(setting).catch(() => {});
     draw();
     return true;
@@ -285,12 +321,12 @@ async function prepare() {
 async function startLocal(next: "local" | "bot") {
   if (loading) return;
   generation++;
-  worker?.terminate();
-  worker = undefined;
+  resetBot();
   mode = next;
   forcedResult = undefined;
   room = undefined;
   difficulty = get<HTMLSelectElement>("difficulty").value as Difficulty;
+  if (next === "bot") warmBot();
   ownColor = "w";
   setting = Math.random() < 0.5 ? "park" : "library";
   match = new Match(
@@ -313,10 +349,14 @@ function acceptBriefing() {
     network?.send({ type: "accept" });
     return;
   }
+  if (accepted) {
+    dialog("briefing").close();
+    return;
+  }
   accepted = true;
   dialog("briefing").close();
   draw();
-  stage?.canvas.focus({ preventScroll: true });
+  stage?.revealPieces();
 }
 async function animateMove(
   move: Move,
@@ -324,14 +364,17 @@ async function animateMove(
   beforeShift: ReturnType<Match["chess"]["board"]>,
 ) {
   if (!stage) return;
-  await stage.move(move, overhead || (mode !== "local" && move.color !== ownColor), () => audio.move(Boolean(move.captured)));
+  const activeGeneration = generation;
+  const shift = settlement.applied ? settlement.due : null;
+  await stage.move(move, () => audio.move(Boolean(move.captured)));
+  if (generation !== activeGeneration) return;
   stage.sync(beforeShift);
-  if (settlement.due && settlement.applied) {
-    stage.frame(cameraSide(), undefined, true);
+  lastMove = move;
+  if (shift) {
+    drawShift(shift, false, beforeShift);
     audio.cue(true);
-    get("flash").classList.add("active");
-    await stage.shift(settlement.due);
-    get("flash").classList.remove("active");
+    await stage.shift(shift);
+    if (generation !== activeGeneration) return;
     message = "shiftApplied";
   } else if (settlement.due) message = "shiftSkipped";
   if (settlement.announced) audio.cue();
@@ -347,39 +390,38 @@ async function makeMove(from: Square, to: Square, promotion?: string) {
     const move = current.play(from, to, promotion),
       beforeShift = current.chess.board();
     const settlement = current.settle();
+    if (mode === "bot" && move.color === ownColor && !current.isEnded())
+      requestBotMove(current);
     await animateMove(move, settlement, beforeShift);
+    if (match !== current) return;
     stage!.sync(current.chess.board());
-    stage!.frame(cameraSide(), undefined, overhead, !overhead);
   } finally {
-    busy = false;
-    draw();
+    if (match === current) {
+      busy = false;
+      draw();
+    }
   }
   if (ended()) {
     audio.result();
     showResult();
-  } else scheduleBot();
+  } else playBotReply();
 }
-async function choose(square: Square) {
+async function choose(square: Square, keepSelected = false) {
   if (!mayPlay() || !match) return;
   const chess = match.chess;
   if (chess.get(square)?.color === chess.turn()) {
+    if (keepSelected && selected === square) return;
     selected = selected === square ? undefined : square;
     audio.select();
     draw();
     return;
   }
-  if (!selected) {
-    toast("selectHint");
-    return;
-  }
+  if (!selected) return;
   const from = selected,
-    candidates = chess
-      .moves({ square: from, verbose: true })
-      .filter((m) => m.to === square);
-  if (!candidates.length) {
-    toast("invalidMove");
-    return;
-  }
+    candidates = legalCache?.match === match && legalCache.plies === match.plies
+      ? legalCache.moves.filter((m) => m.from === from && m.to === square)
+      : chess.moves({ square: from, verbose: true }).filter((m) => m.to === square);
+  if (!candidates.length) return;
   dialog("moves-dialog").close();
   let promotion: string | undefined;
   if (candidates[0].promotion) {
@@ -412,36 +454,50 @@ async function choose(square: Square) {
     } else toast("pausedOnline");
   } else await makeMove(from, square, promotion);
 }
-function scheduleBot() {
-  if (mode !== "bot" || !match || match.chess.turn() !== "b" || ended()) return;
-  const current = generation;
+function resetBot() {
   worker?.terminate();
-  worker = new Worker(new URL("./bot.worker.ts", import.meta.url), {
-    type: "module",
-  });
-  draw();
-  toast("thinking");
-  worker.onmessage = (event) => {
-    worker?.terminate();
-    worker = undefined;
-    if (current !== generation || mode !== "bot" || !match) return;
-    const move = event.data.move ?? match.chess.moves({ verbose: true })[0];
-    if (move) void makeMove(move.from, move.to, move.promotion);
+  worker = undefined;
+  botThinking = false;
+  botReply = undefined;
+}
+function warmBot() {
+  try {
+    worker ??= new Worker(new URL("./bot.worker.ts", import.meta.url), {
+      type: "module",
+    });
+    worker.onerror = () => resetBot();
+  } catch {}
+}
+function requestBotMove(current: Match) {
+  warmBot();
+  const finish = (move?: Pick<Move, "from" | "to" | "promotion">) => {
+    if (match !== current || !botThinking) return;
+    botThinking = false;
+    botReply = move ?? current.chess.moves({ verbose: true })[0];
+    playBotReply();
   };
+  botThinking = true;
+  if (!worker) {
+    finish();
+    return;
+  }
+  worker.onmessage = (event) => finish(event.data.move);
   worker.onerror = () => {
     worker?.terminate();
     worker = undefined;
-    if (current === generation && match) {
-      const move = match.chess.moves({ verbose: true })[0];
-      if (move) void makeMove(move.from, move.to, move.promotion);
-    }
+    finish();
   };
-  worker.postMessage({ state: match.snapshot(), difficulty });
+  worker.postMessage({ state: current.snapshot(), difficulty });
+}
+function playBotReply() {
+  if (busy || mode !== "bot" || match?.chess.turn() !== "b" || !botReply) return;
+  const move = botReply;
+  botReply = undefined;
+  void makeMove(move.from, move.to, move.promotion);
 }
 function leaveGame() {
   generation++;
-  worker?.terminate();
-  worker = undefined;
+  resetBot();
   network?.close();
   network = undefined;
   room = undefined;
@@ -451,6 +507,7 @@ function leaveGame() {
   busy = false;
   accepted = false;
   closePanels();
+  stage?.cancelAnimations();
   stage?.indicate(null);
   stage?.setInteraction(false);
   audio.stopAmbience();
@@ -521,20 +578,29 @@ async function receiveRoom(next: Room, packet: any) {
     if (!(await prepare())) return;
   }
   if (dialog("briefing").open) dialog("briefing").close();
+  const reveal =
+    next.phase === "playing" && old?.phase === "briefing" && next.state.plies === 0;
   accepted = true;
+  if (match.plies !== next.state.plies) {
+    lastMove = undefined;
+    message = undefined;
+  }
   if (packet.move && match.plies + 1 === next.state.plies && !document.hidden) {
+    const current = match;
     busy = true;
     selected = undefined;
     draw();
     const move = match.chess.move(packet.move);
     await animateMove(move, packet.settlement, match.chess.board());
+    if (match !== current) return;
   }
   match = Match.restore(next.state);
   forcedResult = next.result;
   busy = false;
   stage!.sync(match.chess.board());
-  stage!.frame(cameraSide(), undefined, overhead, true);
+  stage!.frame(cameraSide(), overhead);
   draw();
+  if (reveal) stage!.revealPieces();
   if (!next.players.every((p) => p.connected)) toast("opponentDisconnected");
   if (next.phase === "ended") {
     audio.result();
@@ -681,9 +747,9 @@ button("resign").onclick = () => {
   if (mode === "online") network?.send({ type: "resign" });
   else {
     generation++;
-    worker?.terminate();
+    resetBot();
     forcedResult = {
-      winner: cameraSide() === "w" ? "b" : "w",
+      winner: (mode === "local" ? match?.chess.turn() : ownColor) === "w" ? "b" : "w",
       reason: "resigned",
     };
     draw();
@@ -702,7 +768,7 @@ button("settings").onclick = () => {
 button("view").onclick = () => {
   if (busy || !match) return;
   overhead = !overhead;
-  stage!.frame(cameraSide(), undefined, overhead);
+  stage!.frame(cameraSide(), overhead);
   draw();
 };
 button("sound").onclick = () => {
@@ -738,7 +804,10 @@ button("locale").onclick = () => {
   translate();
 };
 for (const b of host.querySelectorAll<HTMLElement>("[data-open]"))
-  b.onclick = () => openPanel(b.dataset.open!);
+  b.onclick = () => {
+    b.closest("dialog")?.close();
+    openPanel(b.dataset.open!);
+  };
 for (const b of host.querySelectorAll<HTMLElement>("[data-close]"))
   b.onclick = () => b.closest("dialog")!.close();
 for (const b of host.querySelectorAll<HTMLElement>("[data-back]"))

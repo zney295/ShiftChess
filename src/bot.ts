@@ -4,8 +4,7 @@ import type { Move } from "chess.js";
 export type Difficulty = "easy" | "normal" | "expert";
 const values = { p: 100, n: 320, b: 335, r: 500, q: 900, k: 0 };
 const score = (match: Match) => {
-  if (match.chess.isCheckmate()) return -100000;
-  if (match.isEnded()) return 0;
+  const side = match.chess.turn();
   let total = 0;
   for (const cell of match.chess.board().flat()) {
     if (!cell) continue;
@@ -20,7 +19,7 @@ const score = (match: Match) => {
           ? -center * 3
           : center * 6;
     total +=
-      (cell.color === match.chess.turn() ? 1 : -1) *
+      (cell.color === side ? 1 : -1) *
       (values[cell.type] + bonus);
   }
   return total;
@@ -44,7 +43,7 @@ export function bestMove(
 ) {
   const deadline =
     performance.now() +
-    (budget ?? { easy: 100, normal: 650, expert: 1800 }[difficulty]);
+    (budget ?? { easy: 100, normal: 300, expert: 900 }[difficulty]);
   const root = Match.restore(state, () => 0.5);
   const moves = order(root.chess.moves({ verbose: true }));
   if (!moves.length || root.isEnded()) return null;
@@ -57,8 +56,10 @@ export function bestMove(
     alpha: number,
     beta: number,
   ): number => {
-    if ((++nodes & 31) === 0 && performance.now() > deadline) throw timeout;
-    if (position.isEnded() || depth === 0) return score(position);
+    if ((++nodes & 7) === 0 && performance.now() > deadline) throw timeout;
+    if (position.isEnded())
+      return position.chess.isCheckmate() ? -100000 : 0;
+    if (depth === 0) return score(position);
     let value = -Infinity;
     for (const move of order(position.chess.moves({ verbose: true }))) {
       const child = Match.restore(position.snapshot(), () => 0.5);
@@ -79,13 +80,15 @@ export function bestMove(
         const child = Match.restore(state, () => 0.5);
         child.play(move.from, move.to, move.promotion);
         child.settle();
-        const value = -search(child, depth - 1, -Infinity, Infinity);
+        const value = -search(child, depth - 1, -Infinity, -high);
         if (value > high) {
           high = value;
           candidate = move;
         }
+        if (high === 100000) break;
       }
       best = candidate;
+      if (high === 100000) break;
     } catch (error) {
       if (error !== timeout) throw error;
       break;

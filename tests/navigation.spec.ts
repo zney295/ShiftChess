@@ -18,11 +18,11 @@ test("menus isolate input, shortcuts work, and leaving requires confirmation", a
   await page.screenshot({ path: testInfo.outputPath("play-mobile.png") });
   await expect(page.locator("#moves-dialog")).not.toBeVisible();
   await page.keyboard.press("v");
-  await expect(page.locator("#view")).toHaveText("Nhập vai");
+  await expect(page.locator("#view")).toHaveText("Góc nghiêng");
   await page.keyboard.press("Escape");
   await expect(page.locator("#menu-dialog")).toBeVisible();
   await page.keyboard.press("v");
-  await expect(page.locator("#view")).toHaveText("Nhập vai");
+  await expect(page.locator("#view")).toHaveText("Góc nghiêng");
   await page.locator("#settings").click();
   await expect(page.locator("#leave-dialog")).toBeVisible();
   await page.keyboard.press("Escape");

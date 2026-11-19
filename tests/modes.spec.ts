@@ -1,11 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { clickMove } from "./board";
 
-async function move(page: Page, from: string, to: string) {
-  await page.locator('[data-open="moves-dialog"]').click();
-  await page.locator("#piece").selectOption(from);
-  await page.locator("#target").selectOption(to);
-  await page.locator("#confirm-move").click();
-}
 test("bot answers, result offers rematch, and setup fits a small screen", async ({
   page,
 }) => {
@@ -16,7 +11,7 @@ test("bot answers, result offers rematch, and setup fits a small screen", async 
   await page.locator("#difficulty").selectOption("easy");
   await page.locator("#start-bot").click();
   await page.locator("#accept-shift").click();
-  await move(page, "e2", "e4");
+  await clickMove(page, "e2", "e4");
   await expect(page.locator("#log li")).toHaveCount(2, { timeout: 15000 });
   await expect(page.locator("#turn")).toHaveText("Lượt Trắng");
   await page.locator("#menu").click();
@@ -65,9 +60,9 @@ test("two browsers join by code, agree SHIFT, play, reconnect, and rematch", asy
     await a.locator("#accept-shift").click();
     await b.locator("#accept-shift").click();
     await expect(a.locator("#briefing")).toBeHidden();
-    await move(a, "e2", "e4");
+    await clickMove(a, "e2", "e4");
     await expect(b.locator("#turn")).toHaveText("Lượt Đen");
-    await move(b, "e7", "e5");
+    await clickMove(b, "e7", "e5", "b");
     await expect(a.locator("#turn")).toHaveText("Lượt Trắng");
     await b.reload();
     await expect(b.locator("#viewport canvas")).toBeVisible();

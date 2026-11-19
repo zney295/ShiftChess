@@ -1,6 +1,5 @@
 import {
   Chess,
-  type Color,
   type Move,
   type Piece,
   type Square,
@@ -23,37 +22,41 @@ export type MatchState = {
 
 const canShift = (piece?: Piece) => piece?.type !== "k" && piece?.type !== "p";
 
+export function movesShiftPair(effect: Effect, first?: Piece, second?: Piece) {
+  if (effect === "slide") return Boolean(first) !== Boolean(second);
+  return first?.type !== second?.type || first?.color !== second?.color;
+}
+
 function pairsFor(chess: Chess, effect: Effect): Pair[] {
   const cells = chess.board().flat();
   const pairs: Pair[] = [];
-  const occupied: Square[] = [];
+  const occupied: (Piece & { square: Square })[] = [];
   const empty: Square[] = [];
   cells.forEach((piece, index) => {
     const square = ("abcdefgh"[index % 8] +
       (8 - Math.floor(index / 8))) as Square;
     if (!piece) empty.push(square);
-    else if (canShift(piece)) occupied.push(square);
+    else if (canShift(piece)) occupied.push(piece);
   });
-  occupied.forEach((a, index) => {
-    const partners = effect === "slide" ? empty : occupied.slice(index + 1);
-    partners.forEach((b) => {
-      const first = chess.get(a);
-      const second = chess.get(b);
-      if (
-        !first ||
-        (second && first.type === second.type && first.color === second.color)
-      )
-        return;
-      pairs.push([a, b]);
-    });
+  occupied.forEach((first, index) => {
+    if (effect === "slide") {
+      for (const square of empty) pairs.push([first.square, square]);
+      return;
+    }
+    for (let i = index + 1; i < occupied.length; i++) {
+      const second = occupied[i];
+      if (movesShiftPair(effect, first, second))
+        pairs.push([first.square, second.square]);
+    }
   });
   return pairs;
 }
 
 export function shiftedPosition(chess: Chess, shift: Shift): string | null {
   if (chess.isCheck() || !shift.pairs.length) return null;
-  const original = chess.fen().split(" ");
-  const result = new Chess(chess.fen());
+  const fen = chess.fen();
+  const original = fen.split(" ");
+  const result = new Chess(fen);
   const touched = new Set<Square>();
   let changed = false;
   for (const [a, b] of shift.pairs) {
@@ -63,16 +66,7 @@ export function shiftedPosition(chess: Chess, shift: Shift): string | null {
     const first = result.get(a);
     const second = result.get(b);
     if (!canShift(first) || !canShift(second)) return null;
-    if (shift.effect === "slide" && Boolean(first) === Boolean(second))
-      continue;
-    if (
-      (!first && !second) ||
-      (first &&
-        second &&
-        first.type === second.type &&
-        first.color === second.color)
-    )
-      continue;
+    if (!movesShiftPair(shift.effect, first, second)) continue;
     changed = true;
     result.remove(a);
     result.remove(b);
@@ -80,8 +74,13 @@ export function shiftedPosition(chess: Chess, shift: Shift): string | null {
     if (second) result.put(second, a);
   }
   if (!changed) return null;
+  for (const color of ["w", "b"] as const) {
+    const [king] = result.findPiece({ type: "k", color });
+    if (!king || result.isAttacked(king, color === "w" ? "b" : "w"))
+      return null;
+  }
   const parts = result.fen().split(" ");
-  const fen = [
+  return [
     parts[0],
     original[1],
     parts[2],
@@ -89,16 +88,6 @@ export function shiftedPosition(chess: Chess, shift: Shift): string | null {
     original[4],
     original[5],
   ].join(" ");
-  const verified = new Chess(fen);
-  for (const color of ["w", "b"] as Color[]) {
-    const king = verified
-      .board()
-      .flat()
-      .find((piece) => piece?.type === "k" && piece.color === color);
-    if (!king || verified.isAttacked(king.square, color === "w" ? "b" : "w"))
-      return null;
-  }
-  return fen;
 }
 
 export class Match {
