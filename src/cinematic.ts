@@ -3,11 +3,12 @@ import type { GameAudio } from "./audio";
 import { shiftedPosition, type Shift } from "./rules";
 import type { CameraShot, Stage } from "./stage";
 
-const position = "2r3k1/5ppp/8/1Q6/8/8/5PPP/4R1K1 w - - 0 1";
+export const cinematicPosition = "2r3k1/5ppp/8/1Q6/8/8/5PPP/4R1K1 w - - 0 1";
 const shift: Shift = { at: 6, effect: "slide", pairs: [["b5", "e5"]] };
-const wideShot: CameraShot = {
+export const cinematicShot: CameraShot = {
   from: [0, 12.4, 8.1], to: [0, 11.4, 7.55], target: [0, 0.22, -0.35], duration: 2200,
 };
+const wideShot = cinematicShot;
 const shiftShot: CameraShot = {
   from: [-0.95, 6.7, 3.7], to: [-0.95, 6, 3.2], target: [-0.95, 0.34, -0.9], duration: 1630,
 };
@@ -36,7 +37,7 @@ function hold(signal: AbortSignal, ms: number) {
 }
 
 async function playScene(stage: Stage, signal: AbortSignal, reveal: () => void, audio?: GameAudio) {
-  const chess = new Chess(position);
+  const chess = new Chess(cinematicPosition);
   stage.indicate(null);
   stage.sync(chess.board());
   stage.setShot(wideShot);

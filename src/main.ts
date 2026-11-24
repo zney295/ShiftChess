@@ -10,6 +10,7 @@ import { BoardGrid } from "./board-grid";
 import { ClockView, TurnClock } from "./clock-view";
 import { drawPlayers } from "./players";
 import { drawShift } from "./shift-hud";
+import { cinematicPosition, cinematicShot, loopLobbyCinematic } from "./cinematic";
 import { template } from "./template";
 import { bindPreferenceControls, loadPreferences, savePreferences } from "./preferences";
 import "./style.css";
@@ -375,20 +376,44 @@ function useFlatBoard() {
   draw();
   if (host.dataset.screen === "play") toast("webgl");
 }
+function setInitialLoader(percent: number, statusText?: string) {
+  const bar = document.getElementById("initial-progress-bar");
+  const status = document.getElementById("initial-loader-status");
+  if (bar) bar.style.width = `${percent}%`;
+  if (status && statusText) status.textContent = statusText;
+}
+
+function dismissInitialLoader() {
+  const loader = document.getElementById("initial-loader");
+  if (!loader || loader.classList.contains("loaded")) return;
+  setInitialLoader(100);
+  setTimeout(() => {
+    loader.classList.add("loaded");
+    setTimeout(() => loader.remove(), 600);
+  }, 180);
+}
+
 function renderLobbyBoard(scene: Stage) {
   scene.setSetting(visualTheme());
-  scene.sync(new Chess().board());
+  scene.sync(new Chess(cinematicPosition).board());
   scene.frame("w");
   scene.setPresentation(true);
 }
 
 async function showPreview() {
   try {
+    setInitialLoader(40);
     const scene = await ensureStage();
-    if (!scene || host.dataset.screen !== "start" || match || lobbyCinematic) return;
+    setInitialLoader(85);
+    if (!scene || host.dataset.screen !== "start" || match || lobbyCinematic) {
+      dismissInitialLoader();
+      return;
+    }
     renderLobbyBoard(scene);
     updateLobbyCinematic();
+    dismissInitialLoader();
   } catch {
+    dismissInitialLoader();
     toast("webgl");
   }
 }
@@ -418,7 +443,6 @@ async function startLobbyCinematic(scene: Stage) {
   lobbyCinematic = run;
   const viewport = get("viewport");
   try {
-    const { loopLobbyCinematic } = await import("./cinematic");
     run.signal.throwIfAborted();
     await loopLobbyCinematic(scene, run.signal,
       (faded) => viewport.toggleAttribute("data-cinematic-fade", faded),
@@ -1111,6 +1135,7 @@ bindPreferenceControls(preferences, audio, {
 });
 showScreen("start", button("start"));
 translate();
+setTimeout(dismissInitialLoader, 2500);
 try {
   const saved = JSON.parse(
     sessionStorage.getItem("shiftchess-session") || "null",

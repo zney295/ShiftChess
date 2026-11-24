@@ -4,6 +4,7 @@ const musicIcon = icon('<path d="M4 10h4l5-4v12l-5-4H4z"/><path class="sound-wav
 const menuIcon = icon('<path d="M5 6h14M5 12h14M5 18h14"/>');
 const historyIcon = icon('<circle cx="12" cy="12" r="8"/><path d="M12 8v5h4"/>');
 const guideIcon = icon('<path d="M12 6c-3-2-6-2-9-1v13c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1Zm0 0v13"/>');
+const cornerFlourish = `<svg class="corner-flourish-svg" viewBox="0 0 44 44" fill="none" stroke="currentColor" aria-hidden="true"><path d="M4 40V15C4 8.9 8.9 4 15 4H40" stroke-width="1.2" stroke-linecap="round"/><path d="M8 36V17C8 12 12 8 17 8H36" stroke-width="0.75" stroke-opacity="0.45"/><path d="M12 12C14 8 18 6 22 8C25 10 23 15 19 15C15 15 13 20 15 24C16 26 19 26 21 24" stroke-width="1" stroke-linecap="round"/><circle cx="14" cy="14" r="1.5" fill="currentColor"/><circle cx="26" cy="8" r="1.1" fill="currentColor" opacity="0.7"/><circle cx="8" cy="26" r="1.1" fill="currentColor" opacity="0.7"/></svg>`;
 const turnRing = '<svg class="turn-ring" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27"/><circle class="turn-sweep" cx="30" cy="30" r="27" pathLength="100"/></svg>';
 const shiftRules = `
   <li class="briefing-rule-item"><span class="rule-icon">${icon('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M12 4v16M4 12h16"/>')}</span><span data-copy="shiftNotice"></span></li>
@@ -21,14 +22,54 @@ export const template = `
     <div class="start-shell">
 
     <div class="start-panel">
-      <header>
-        <h1 id="start-title"><span class="brand-shift">Shift</span>Chess</h1>
-        <p class="muted" data-copy="subtitle"></p>
-      </header>
-      <div class="start-actions">
-        <button class="primary" id="start" type="button"><span data-copy="start"></span>${icon('<path d="M4 12h15m-6-6 6 6-6 6"/>')}</button>
-        <button id="start-guide" type="button" data-open="help-dialog">${guideIcon}<span data-copy="help"></span></button>
-        <button id="start-settings" type="button" data-open="preferences-dialog">${settingsIcon}<span data-copy="preferences"></span></button>
+      <div class="corner-flourish corner-tl">${cornerFlourish}</div>
+      <div class="corner-flourish corner-tr">${cornerFlourish}</div>
+      <div class="corner-flourish corner-bl">${cornerFlourish}</div>
+      <div class="corner-flourish corner-br">${cornerFlourish}</div>
+      <div class="start-panel-inner">
+        <header>
+          <div class="plaque-emblem" aria-hidden="true">
+            <span class="emblem-crown">♔</span>
+          </div>
+          <h1 id="start-title"><span class="brand-shift">Shift</span><span class="brand-chess">Chess</span></h1>
+          <div class="start-divider">
+            <span class="divider-line"></span>
+            <span class="divider-symbol" aria-hidden="true">❖</span>
+            <span class="divider-line"></span>
+          </div>
+          <p class="muted" data-copy="subtitle"></p>
+        </header>
+
+        <div class="start-shift-showcase" aria-hidden="true">
+          <div class="showcase-top">
+            <span class="showcase-badge">SHIFT · MECHANIC</span>
+            <span class="showcase-cycle">CYCLE: 6 TURNS</span>
+          </div>
+          <div class="showcase-board">
+            <div class="showcase-tile tile-a">
+              <span class="tile-label">D4</span>
+              <span class="tile-piece">♞</span>
+            </div>
+            <div class="showcase-arrow-wrap">
+              <svg class="showcase-swap-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 8l4-4m-4 4l4 4m-4-4h16M20 16l-4-4m4 4l-4 4m4-4H4"/>
+              </svg>
+            </div>
+            <div class="showcase-tile tile-b">
+              <span class="tile-label">F6</span>
+              <span class="tile-piece">♝</span>
+            </div>
+          </div>
+          <div class="showcase-caption">
+            <span data-copy="shiftNotice"></span>
+          </div>
+        </div>
+
+        <div class="start-actions">
+          <button class="primary" id="start" type="button"><span data-copy="start"></span>${icon('<path d="M4 12h15m-6-6 6 6-6 6"/>')}</button>
+          <button id="start-guide" type="button" data-open="help-dialog">${guideIcon}<span data-copy="help"></span></button>
+          <button id="start-settings" type="button" data-open="preferences-dialog">${settingsIcon}<span data-copy="preferences"></span></button>
+        </div>
       </div>
     </div>
     </div>
