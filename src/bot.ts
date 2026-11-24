@@ -56,7 +56,7 @@ export function bestMove(
     alpha: number,
     beta: number,
   ): number => {
-    if ((++nodes & 7) === 0 && performance.now() > deadline) throw timeout;
+    if ((++nodes & 7) === 0 && performance.now() >= deadline) throw timeout;
     if (position.isEnded())
       return position.chess.isCheckmate() ? -100000 : 0;
     if (depth === 0) return score(position);
@@ -76,11 +76,12 @@ export function bestMove(
       high = -Infinity;
     try {
       for (const move of [best, ...moves.filter((item) => item !== best)]) {
-        if (performance.now() > deadline && depth > 1) throw timeout;
+        if (performance.now() >= deadline) throw timeout;
         const child = Match.restore(state, () => 0.5);
         child.play(move.from, move.to, move.promotion);
         child.settle();
         const value = -search(child, depth - 1, -Infinity, -high);
+        if (performance.now() >= deadline) throw timeout;
         if (value > high) {
           high = value;
           candidate = move;

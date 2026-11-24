@@ -33,6 +33,7 @@ export class RoomStore {
       })),
     };
     delete snapshot.timer;
+    delete snapshot.watchers;
     this.upsert.run(room.code, JSON.stringify(snapshot), Date.now());
   }
   load() {

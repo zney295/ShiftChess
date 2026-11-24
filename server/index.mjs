@@ -4,9 +4,10 @@ import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
-import { Match } from "../src/rules.ts";
-import { command, startMatch, GameError, serverRandom } from "./engine.mjs";
+import { Match, turnTimeMs } from "../src/rules.ts";
+import { advanceClocks, beginIfReady, command, startMatch, GameError, serverRandom } from "./engine.mjs";
 import { RoomStore } from "./store.mjs";
+import { defaultClockMs, expireClock, newClock, pauseClock, resumeClock } from "./clock.mjs";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const token = () => randomBytes(24).toString("hex");
@@ -28,8 +29,15 @@ export function createGameServer({
   port = Number(process.env.PORT || 48700),
   host = process.env.HOST || "127.0.0.1",
   graceMs = 60000,
+  clockMs = defaultClockMs,
+  turnMs = turnTimeMs,
+  maxRooms = Number(process.env.MAX_ROOMS || 200),
   databasePath = process.env.DATABASE_PATH || "./data/shiftchess.sqlite",
 } = {}) {
+  if (!Number.isInteger(clockMs) || clockMs <= 0 || clockMs > 2 ** 31 - 1 ||
+      !Number.isInteger(turnMs) || turnMs <= 0 || turnMs > 2 ** 31 - 1 ||
+      !Number.isInteger(maxRooms) || maxRooms <= 0)
+    throw new RangeError("Invalid room or clock limits");
   const rooms = new Map(),
     sessions = new Map();
   const store = new RoomStore(databasePath);
@@ -88,7 +96,10 @@ export function createGameServer({
             ".js": "text/javascript",
             ".css": "text/css",
             ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".webp": "image/webp",
             ".svg": "image/svg+xml",
+            ".webmanifest": "application/manifest+json",
           }[extname(file)] || "application/octet-stream",
         "Cache-Control": pathname.startsWith("/assets/")
           ? "public, max-age=31536000, immutable"
@@ -160,22 +171,43 @@ export function createGameServer({
     revision: room.revision,
     result: room.result,
     disconnectedUntil: room.disconnectedUntil,
+    clock: room.clock ? { ...room.clock, serverNow: Date.now() } : undefined,
   });
   const broadcast = (room, extra = {}) => {
+    clearTimeout(room.timer);
+    room.timer = undefined;
     persist(room);
-    room.players.forEach((p) =>
-      send(p.socket, { type: "room", room: pack(room), ...extra }),
-    );
+    const packet = { type: "room", room: pack(room), ...extra };
+    room.players.forEach((p) => send(p.socket, packet));
+    room.watchers.forEach((socket) => send(socket, packet));
+    scheduleClock(room);
+  };
+  const scheduleClock = (room) => {
+    if (room.clock?.deadline == null) return;
+    const deadline = Math.min(room.clock.deadline, room.clock.turnDeadline);
+    room.timer = setTimeout(() => {
+      if (stopping) return;
+      const event = advanceClocks(room, Date.now());
+      if (event) {
+        try { broadcast(room, event); } catch { /* Storage failure initiates shutdown. */ }
+      } else scheduleClock(room);
+    }, Math.max(1, deadline - Date.now()));
   };
   const finish = (room, winner, reason) => {
+    pauseClock(room, Date.now());
     room.phase = "ended";
     room.result = { winner, reason };
     broadcast(room);
   };
   const dropRoom = (room) => {
     clearTimeout(room.timer);
-    room.players.forEach((p) => sessions.delete(p.token));
+    room.players.forEach((p) => {
+      clearTimeout(p.timer);
+      sessions.delete(p.token);
+    });
     rooms.delete(room.code);
+    room.watchers.forEach((socket) => send(socket, { type: "error", key: "expired" }));
+    room.watchers.clear();
     store.delete(room.code);
   };
   const leave = (player) => {
@@ -191,17 +223,17 @@ export function createGameServer({
     if (room.phase === "waiting") {
       room.players.forEach((p) => (p.ready = false));
       broadcast(room);
-    } else finish(room, room.players[0].color, "left");
+    } else if (room.phase === "ended") broadcast(room);
+    else finish(room, room.players[0].color, "left");
   };
   const start = (room) => {
-    startMatch(room);
+    startMatch(room, clockMs, turnMs);
     broadcast(room);
   };
   const waitForReconnect = (player, room) => {
     player.timer = setTimeout(() => {
       if (player.socket) return;
       if (!room.players.some((p) => p.socket)) {
-        room.players.forEach((p) => clearTimeout(p.timer));
         dropRoom(room);
       } else leave(player);
     }, graceMs);
@@ -213,9 +245,15 @@ export function createGameServer({
     }
     const room = {
       ...saved,
+      watchers: new Set(),
       match: saved.match ? Match.restore(saved.match, serverRandom) : undefined,
       disconnectedUntil: Date.now() + graceMs,
     };
+    if (room.match) {
+      room.clock = { ...newClock(clockMs, turnMs), ...room.clock };
+      const now = Date.now();
+      if (!expireClock(room, now)) pauseClock(room, now);
+    }
     rooms.set(room.code, room);
     room.players.forEach((p) => {
       sessions.set(p.token, p);
@@ -224,10 +262,11 @@ export function createGameServer({
   }
   wss.on("connection", (socket, req) => {
     let player,
+      watching,
       count = 0,
       windowAt = Date.now();
     const joinTimeout = setTimeout(() => {
-      if (!player) socket.close(1008);
+      if (!player && !watching) socket.close(1008);
     }, 30000);
     socket.alive = true;
     socket.on("pong", () => (socket.alive = true));
@@ -246,6 +285,21 @@ export function createGameServer({
         const msg = JSON.parse(raw.toString());
         if (!msg || Array.isArray(msg) || typeof msg.type !== "string")
           return error("invalid");
+        if (watching) {
+          if (msg.type !== "leave") return error("invalid");
+          watching.watchers.delete(socket);
+          watching = undefined;
+          return;
+        }
+        if (msg.type === "watch") {
+          if (player) return error("invalid");
+          const room = typeof msg.code === "string" && rooms.get(msg.code);
+          if (!room) return error("roomMissing");
+          watching = room;
+          room.watchers.add(socket);
+          send(socket, { type: "room", room: pack(room) });
+          return;
+        }
         if (msg.type === "resume") {
           if (player) return error("invalid");
           const candidate =
@@ -257,7 +311,10 @@ export function createGameServer({
           player = candidate;
           clearTimeout(player.timer);
           player.socket = socket;
-          room.disconnectedUntil = undefined;
+          if (room.players.every((p) => p.socket)) room.disconnectedUntil = undefined;
+          const now = Date.now();
+          beginIfReady(room, now);
+          resumeClock(room, now);
           send(socket, {
             type: "session",
             token: msg.token,
@@ -294,7 +351,7 @@ export function createGameServer({
                 r.players[0].socket,
             );
           if (!room) {
-            if (rooms.size >= 200) return error("serverFull");
+            if (rooms.size >= maxRooms) return error("serverFull");
             let id;
             do {
               id = code();
@@ -303,6 +360,7 @@ export function createGameServer({
               code: id,
               quick: msg.type === "quick",
               players: [],
+              watchers: new Set(),
               phase: "waiting",
               revision: 0,
               createdAt: Date.now(),
@@ -335,12 +393,18 @@ export function createGameServer({
         }
         const room = player && rooms.get(player.code);
         if (!room) return error("expired");
+        const now = Date.now();
+        const clockEvent = advanceClocks(room, now);
+        if (clockEvent) {
+          broadcast(room, clockEvent);
+          if (msg.type === "move") return;
+        }
         if (msg.type === "leave") {
           leave(player);
           player = undefined;
           return;
         }
-        broadcast(room, command(room, player, msg));
+        broadcast(room, command(room, player, msg, { now, clockMs, turnMs }));
       } catch (err) {
         if (err instanceof GameError) error(err.message);
         else if (err instanceof SyntaxError) error("invalid");
@@ -354,12 +418,16 @@ export function createGameServer({
     });
     socket.on("close", () => {
       clearTimeout(joinTimeout);
+      watching?.watchers.delete(socket);
       if (stopping || !player || !sessions.has(player.token)) return;
       const room = rooms.get(player.code);
       if (!room) return;
+      const now = Date.now();
+      const clockEvent = advanceClocks(room, now);
+      pauseClock(room, now);
       player.socket = undefined;
-      room.disconnectedUntil = Date.now() + graceMs;
-      broadcast(room);
+      room.disconnectedUntil = now + graceMs;
+      broadcast(room, clockEvent);
       waitForReconnect(player, room);
     });
   });
@@ -387,6 +455,8 @@ export function createGameServer({
     stopping = true;
     clearInterval(cleanup);
     for (const r of rooms.values()) {
+      clearTimeout(r.timer);
+      if (!expireClock(r, Date.now())) pauseClock(r, Date.now());
       if (save) store.save(r);
       r.players.forEach((p) => {
         clearTimeout(p.timer);

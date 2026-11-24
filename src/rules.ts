@@ -10,6 +10,13 @@ export type Effect = "swap" | "slide" | "double";
 export type Pair = [Square, Square];
 export type Shift = { pairs: Pair[]; at: number; effect: Effect };
 export const effects: Effect[] = ["swap", "slide", "double"];
+export const turnTimeMs = 30_000;
+
+export function automaticMove(match: Match, random = Math.random) {
+  const moves = match.chess.moves({ verbose: true })
+    .filter((move) => !move.promotion || move.promotion === "q");
+  return moves[Math.floor(random() * moves.length)];
+}
 export type MatchState = {
   fen: string;
   mode: "periodic" | "late";
@@ -23,6 +30,7 @@ export type MatchState = {
 const canShift = (piece?: Piece) => piece?.type !== "k" && piece?.type !== "p";
 
 export function movesShiftPair(effect: Effect, first?: Piece, second?: Piece) {
+  if (!canShift(first) || !canShift(second)) return false;
   if (effect === "slide") return Boolean(first) !== Boolean(second);
   return first?.type !== second?.type || first?.color !== second?.color;
 }

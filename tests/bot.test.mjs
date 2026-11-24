@@ -34,3 +34,12 @@ test("bot finds mate and returns a legal move without mutating match", () => {
   match.play(move.from, move.to, move.promotion);
   assert.equal(match.chess.isCheckmate(), true);
 });
+
+test("interrupted deeper search keeps the last complete iteration", (t) => {
+  const state = new Match("periodic", "swap").snapshot();
+  const shallow = bestMove(state, "easy", 10000);
+  let checks = 0;
+  t.mock.method(performance, "now", () => ++checks <= 47 ? 0 : 100);
+  assert.deepEqual(bestMove(state, "expert", 50), shallow);
+  assert.ok(checks > 47);
+});

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { boardPoint } from "./board";
+import { boardPoint, clickMove } from "./board";
 
 async function fitsScreen(page: Page, selectors: string[]) {
   const { width, height } = page.viewportSize()!;
@@ -21,20 +21,27 @@ async function fitsScreen(page: Page, selectors: string[]) {
   ).toEqual({ width, height });
 }
 
+async function switchLanguage(page: Page, language: "en" | "vi", entrance = "#play-settings") {
+  await page.locator(entrance).click();
+  await page.locator('[data-settings="play"]').click();
+  await page.locator("#language").selectOption(language);
+  await page.keyboard.press("Escape");
+}
+
 test("click the piece and destination, then continue on a compact screen", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
-  await fitsScreen(page, ["#start", "#locale"]);
-  await expect(page.locator("#viewport canvas")).toHaveCount(0);
-  await page.getByRole("button", { name: "Switch to English" }).click();
+  await fitsScreen(page, ["#start", "#start-settings"]);
+  await expect(page.locator("#viewport canvas")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(
     page.getByRole("button", { name: "Start", exact: true }),
   ).toBeVisible();
+  await switchLanguage(page, "vi", "#start-settings");
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await page.getByRole("button", { name: "Chuyển sang tiếng Việt" }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "vi");
   await page.getByRole("button", { name: "Bắt đầu", exact: true }).click();
   await expect(page.locator("#mode-screen")).toBeVisible();
   for (const viewport of [
@@ -46,12 +53,15 @@ test("click the piece and destination, then continue on a compact screen", async
   }
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.locator("#local-mode").click();
+  await expect(page.locator("#briefing")).toBeVisible();
   await page.locator("#accept-shift").click();
   await expect(page.locator("#turn")).toHaveText("Lượt Trắng");
   await expect(page.locator("#shift-heading")).toHaveText(/SHIFT/);
   const head = await boardPoint(page, "e2", { height: 0.73 });
-  await page.mouse.click(head.x, head.y);
+  await page.mouse.move(head.x, head.y);
+  await page.mouse.down();
   await expect(page.locator("#piece")).toHaveValue("e2");
+  await page.mouse.up();
   const e4 = await boardPoint(page, "e4");
   await page.mouse.click(e4.x, e4.y);
   await expect(page.locator("#turn")).toHaveText("Lượt Đen");
@@ -68,9 +78,12 @@ test("click the piece and destination, then continue on a compact screen", async
   await page.mouse.move(e5.x, e5.y, { steps: 5 });
   await page.mouse.up();
   await expect(page.locator("#turn")).toHaveText("Lượt Trắng");
-  await page.getByRole("button", { name: "Nhìn thẳng" }).click();
-  await expect(page.getByRole("button", { name: "Góc nghiêng" })).toBeVisible();
-  await page.getByRole("button", { name: "Switch to English" }).click();
+  await page.locator("#play-settings").click();
+  await page.locator('[data-settings="visual"]').click();
+  await page.locator("#view").selectOption("2d");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("canvas")).toHaveAttribute("data-flat-side", "w");
+  await switchLanguage(page, "en");
   await expect(page.locator("#turn")).toHaveText("White to move");
 
   for (const viewport of [
@@ -81,10 +94,10 @@ test("click the piece and destination, then continue on a compact screen", async
     await page.setViewportSize(viewport);
     await fitsScreen(page, [
       "#viewport canvas",
-      "#view",
-      "#menu",
-      "#event",
-      "#locale",
+      "#play-settings",
+      "#white-player",
+      "#black-player",
+      "#shift-pips",
       ".history-link",
     ]);
   }
@@ -99,12 +112,16 @@ test("click the piece and destination, then continue on a compact screen", async
   await page.locator("#target").selectOption("f3");
   await page.getByRole("button", { name: "Move", exact: true }).click();
   await expect(page.locator("#turn")).toHaveText("Black to move");
+  await expect(page.locator("#moves-dialog")).toBeHidden();
+  await clickMove(page, "g8", "f6");
+  await expect(page.locator("#turn")).toHaveText("White to move");
 
   await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "New game" }).click();
+  await page.getByRole("button", { name: "Return to main menu" }).click();
   await page.locator("#leave").click();
-  await expect(page.locator("#viewport canvas")).toBeHidden();
-  await fitsScreen(page, ["#start", "#locale"]);
+  await expect(page.locator("#viewport canvas")).toBeVisible();
+  await expect(page.locator("#play-screen")).toBeHidden();
+  await fitsScreen(page, ["#start", "#start-settings"]);
   await page.setViewportSize({ width: 320, height: 480 });
-  await fitsScreen(page, ["#start", "#locale"]);
+  await fitsScreen(page, ["#start", "#start-settings"]);
 });

@@ -64,11 +64,13 @@ Giữ bản sao lưu ngoài VPS. Khi restore, dừng game trước khi chép d�
 - `server/index.mjs`: WebSocket, mã phòng, hàng đợi ghép nhanh, token phiên, giới hạn kết nối, heartbeat, static HTTP, vòng đời phòng.
 - `server/store.mjs`: SQLite WAL; commit snapshot trước khi phát trạng thái cho client. Token ngẫu nhiên 192 bit; DB chỉ chứa SHA-256 digest.
 
-Client gửi `create {name}`, `join {name,code}`, `quick {name}`, `resume {token}`, `ready`, `accept`, `move {from,to,promotion?,revision}`, `resign`, `rematch` hoặc `leave`. Client không gửi FEN, cặp ô SHIFT, bên thắng hoặc màu quân để server tin theo.
+Client gửi `create {name}`, `join {name,code}`, `quick {name}`, `resume {token}`, `ready`, `accept`, `move {from,to,promotion?,revision}`, `resign`, `rematch` hoặc `leave`. Khán giả gửi `watch {code}` để nhận trạng thái cùng hai người chơi. Phiên xem trận chỉ chấp nhận lệnh `leave` sau khi đăng ký.
 
 Server trả `session {token,color,playerId}`, `room {room,move?,settlement?}` hoặc `error {key}`. Mỗi nước hợp lệ tăng `revision`; lặp lại hoặc gửi revision cũ bị từ chối. Màu quân đổi khi cả hai đồng ý tái đấu. Hai người phải xác nhận cùng SHIFT trước khi đi nước đầu. Map và SHIFT do server bốc bằng RNG của hệ điều hành; vị trí SHIFT được báo trước đúng 2 nước.
 
-Heartbeat 30 giây; hết heartbeat thì ngắt socket. Trận tạm dừng khi một bên ngắt kết nối, bên còn lại thắng nếu quá 60 giây. Nếu cả hai đều offline khi hết hạn thì thu hồi phòng. Phòng chờ ghép nhanh chỉ ghép với người đang kết nối trong hàng đợi. Giới hạn mặc định: 200 phòng, 400 kết nối, 16 kết nối/IP, 60 lần upgrade/IP/phút, 50 message/socket/10 giây, payload 4 KiB. Client quá chậm bị ngắt khi buffer vượt 256 KiB. Đây là giới hạn bảo vệ, không phải cam kết tải đã benchmark trên VPS.
+Sau khi cả hai xác nhận SHIFT, server cấp 5 phút tổng cho mỗi bên và 30 giây cho lượt hiện tại. Khi hết 30 giây trước khi hết giờ tổng, server chọn một nước hợp lệ rồi chuyển lượt. Bên hết giờ tổng trước thua. Server tạm dừng cả hai đồng hồ khi mất kết nối hoặc khi dừng tiến trình có chủ đích. Nếu tiến trình bị dừng đột ngột, server khôi phục theo hạn giờ đã lưu.
+
+Heartbeat chạy mỗi 30 giây. Trận tạm dừng khi một bên ngắt kết nối và bên còn lại thắng nếu quá 60 giây. Nếu cả hai đều offline khi hết hạn thì thu hồi phòng. Phòng chờ ghép nhanh chỉ ghép với người đang kết nối trong hàng đợi. `MAX_ROOMS` đặt giới hạn phòng, mặc định 200. Máy chủ giới hạn 400 kết nối gồm cả khán giả, 16 kết nối/IP, 60 lần upgrade/IP/phút, 50 message/socket/10 giây và payload 4 KiB. Client có buffer vượt 256 KiB sẽ bị ngắt. Các giới hạn này phục vụ bảo vệ tài nguyên.
 
 ## Kiểm chứng
 
@@ -76,4 +78,4 @@ Heartbeat 30 giây; hết heartbeat thì ngắt socket. Trận tạm dừng khi 
 
 `npm run test:browser`: chơi local bằng click, layout nhỏ/ngang, bot, hai trình duyệt tạo/vào phòng, xác nhận SHIFT, đi quân, reload/reconnect, tái đấu, phím tắt và fullscreen. Cần Chromium đã cài; có thể đặt `PLAYWRIGHT_CHANNEL=msedge` để dùng Edge.
 
-Docker/Caddy cần kiểm tra lại trên VPS có DNS/TLS thật. Chưa có tài khoản, chống bot bằng CAPTCHA, lưu lịch sử dài hạn, spectate, đồng hồ thi đấu hoặc nhiều server.
+Docker/Caddy cần kiểm tra lại trên VPS có DNS/TLS thật. Máy chủ hiện chạy một tiến trình với SQLite. Tài khoản, CAPTCHA và lưu lịch sử dài hạn vẫn ngoài phạm vi hiện tại.

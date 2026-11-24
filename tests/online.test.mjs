@@ -30,6 +30,77 @@ async function client(url) {
     },
   };
 }
+
+test("server clock pauses on disconnect, then flags the active player for spectators too", async () => {
+  const server = createGameServer({ port: 0, databasePath: ":memory:", clockMs: 750, graceMs: 2500 });
+  await server.listen();
+  const url = "ws://127.0.0.1:" + server.http.address().port + "/socket";
+  try {
+    const a = await client(url), b = await client(url), viewer = await client(url);
+    a.send({ type: "create", name: "White" });
+    const session = await a.next((m) => m.type === "session");
+    const { room } = await a.next((m) => m.room?.phase === "waiting");
+    viewer.send({ type: "watch", code: room.code });
+    assert.equal((await viewer.next((m) => m.room?.phase === "waiting")).room.code, room.code);
+    b.send({ type: "join", code: room.code, name: "Black" });
+    await b.next((m) => m.type === "session");
+    a.send({ type: "ready" });
+    b.send({ type: "ready" });
+    const briefing = await viewer.next((m) => m.room?.phase === "briefing");
+    assert.equal(briefing.room.clock.deadline, null);
+    a.send({ type: "accept" });
+    b.send({ type: "accept" });
+    const playing = await viewer.next((m) => m.room?.phase === "playing");
+    assert.ok(playing.room.clock.deadline > playing.room.clock.serverNow);
+    viewer.send({ type: "move", from: "e2", to: "e4", revision: 0 });
+    assert.equal((await viewer.next((m) => m.type === "error")).key, "invalid");
+    a.send({ type: "move", from: "e2", to: "e4", revision: 0 });
+    const move = await viewer.next((m) => m.room?.revision === 1);
+    assert.equal(move.room.state.plies, 1);
+    a.socket.close();
+    const paused = await viewer.next((m) => m.room?.phase === "playing" && m.room.clock.deadline === null);
+    assert.ok(paused.room.clock.remaining.b > 0);
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    assert.equal(server.rooms.get(room.code).phase, "playing");
+    const resumed = await client(url);
+    resumed.send({ type: "resume", token: session.token });
+    const afterResume = await viewer.next((m) => m.room?.clock?.deadline > paused.room.clock.serverNow);
+    assert.equal(afterResume.room.clock.remaining.b, paused.room.clock.remaining.b);
+    const ended = await viewer.next((m) => m.room?.phase === "ended");
+    assert.deepEqual(ended.room.result, { winner: "w", reason: "timeout" });
+    assert.equal(ended.room.clock.remaining.b, 0);
+    assert.equal(ended.room.revision, 1);
+  } finally {
+    await server.close();
+  }
+});
+test("turn timeout sends exactly one legal move and starts the other clock", async () => {
+  const server = createGameServer({ port: 0, databasePath: ":memory:", turnMs: 600 });
+  await server.listen();
+  const url = "ws://127.0.0.1:" + server.http.address().port + "/socket";
+  try {
+    const a = await client(url), b = await client(url);
+    a.send({ type: "quick", name: "White" });
+    await a.next((m) => m.room?.phase === "waiting");
+    b.send({ type: "quick", name: "Black" });
+    await a.next((m) => m.room?.phase === "briefing");
+    a.send({ type: "accept" });
+    b.send({ type: "accept" });
+    const started = await a.next((m) => m.room?.phase === "playing");
+    assert.equal(started.room.clock.turnMs, 600);
+    const packet = await a.next((m) => m.automatic);
+    assert.equal(packet.room.revision, 1);
+    assert.equal(packet.room.state.plies, 1);
+    assert.equal(packet.room.state.fen.split(" ")[1], "b");
+    assert.equal(packet.room.clock.remaining.w, 300000 - 600);
+    assert.equal(packet.room.clock.turnRemaining, 600);
+    const other = await b.next((m) => m.automatic);
+    assert.deepEqual(other.move, packet.move);
+  } finally {
+    await server.close();
+  }
+});
+
 test("private room shares rules, rejects wrong turns, resumes and rematches", async () => {
   const server = createGameServer({ port: 0, databasePath: ":memory:" });
   await server.listen();

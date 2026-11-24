@@ -4,6 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import type { Color, PieceSymbol } from 'chess.js';
 
 export type Setting = 'park' | 'library';
+export const tabletopSize = { width: 9.6, depth: 10.3, height: .32, y: -.31 };
 export const material = (color: T.ColorRepresentation, roughness = 0.72, metalness = 0) =>
   new T.MeshStandardMaterial({ color, roughness, metalness });
 
@@ -49,10 +50,10 @@ const proportions: Record<PieceSymbol, [number, number]> = {
   p:[.92,.99], r:[1.03,1.02], n:[1,1.08], b:[.98,1.05], q:[1.02,1.11], k:[1.07,1.11],
 };
 const pieceSurfaces = {
-  w: new T.MeshStandardMaterial({color:'#e6d7b9',roughness:.48}),
-  b: new T.MeshStandardMaterial({color:'#484a51',roughness:.42}),
+  w: new T.MeshPhysicalMaterial({ color: '#e7dac2', roughness: .33, clearcoat: .72, clearcoatRoughness: .18 }),
+  b: new T.MeshPhysicalMaterial({ color: '#252b36', roughness: .28, clearcoat: .82, clearcoatRoughness: .15 }),
 };
-const trim = { w: material('#927851',.48), b: material('#717883',.43) };
+const trim = { w: material('#b68c5f', .29, .26), b: material('#8398b0', .29, .23) };
 const turned = (profile: Profile) => new T.LatheGeometry(profile.map(([r,y])=>new T.Vector2(r,y)),72);
 const geometries = Object.fromEntries(Object.entries(profiles).map(([type, profile]) => [type,
   turned([...pedestal,...profile,[0,profile.at(-1)![1]]]),
@@ -136,7 +137,7 @@ export function pieceModel(type: PieceSymbol, color: Color) {
   const surface=pieceSurfaces[color],accent=trim[color];
   const body=mesh(geometries[type],surface);
   body.name='Turned body';
-  const foot=ring(.302,.009,.084,accent);
+  const foot=ring(.302,.021,.084,accent);
   foot.name='Pedestal inlay';
   result.add(body,foot,ring(.254,.008,.155,surface));
   if (type==='p') result.add(bead(.177,surface,0,.731,0));
@@ -186,7 +187,7 @@ export function pieceModel(type: PieceSymbol, color: Color) {
     result.add(mesh(mergeGeometries(geometries), surface));
     geometries.forEach((geometry) => geometry.dispose());
   }
-  result.scale.set(width,height,width);
+  result.scale.set(width * 1.13, height * 1.07, width * 1.13);
   return result;
 }
 
@@ -296,21 +297,108 @@ function batchRoom(room: T.Group) {
   return room;
 }
 
+export function softContactTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const falloff = ctx.createRadialGradient(32, 32, 3, 32, 32, 32);
+  falloff.addColorStop(0, 'rgba(34,25,20,.82)');
+  falloff.addColorStop(.6, 'rgba(34,25,20,.55)');
+  falloff.addColorStop(1, 'rgba(34,25,20,0)');
+  ctx.fillStyle = falloff;
+  ctx.fillRect(0, 0, 64, 64);
+  const map = new T.CanvasTexture(canvas);
+  map.colorSpace = T.SRGBColorSpace;
+  return map;
+}
+
+function woodenFloor() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  const tones = ['#3e342e','#473a31','#382f2a','#4e4035','#42362d'];
+  for (let row = 0; row < 8; row++) {
+    const y = row * 64;
+    for (let col = -1; col < 3; col++) {
+      const x = col * 256 + (row % 4) * 64;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = tones[(row * 3 + col + 1) % tones.length];
+      ctx.fillRect(x, y, 256, 64);
+      ctx.fillStyle = '#241c18';
+      ctx.globalAlpha = .52;
+      ctx.fillRect(x, y, 256, 2);
+      ctx.fillRect(x, y, 2, 64);
+      ctx.fillStyle = '#806550';
+      ctx.globalAlpha = .43;
+      ctx.fillRect(x + 2, y + 2, 254, 1);
+      ctx.strokeStyle = '#68432c';
+      for (let line = 0; line < 14; line++) {
+        const grainY = y + 5 + line * 3.9;
+        ctx.globalAlpha = .05 + (line % 4) * .025;
+        ctx.beginPath();
+        ctx.moveTo(x + 3, grainY);
+        ctx.bezierCurveTo(x + 65, grainY - 3, x + 185, grainY + 4 * Math.sin(row + line), x + 253, grainY);
+        ctx.stroke();
+      }
+    }
+  }
+  const map = new T.CanvasTexture(canvas);
+  map.colorSpace = T.SRGBColorSpace;
+  map.wrapS = map.wrapT = T.RepeatWrapping;
+  map.repeat.set(7, 12);
+  map.anisotropy = 4;
+  return new T.MeshStandardMaterial({ map, roughness: .78 });
+}
+
+function wovenRug() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#222d47';
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.fillStyle = '#303c5b';
+  ctx.fillRect(12, 12, 488, 488);
+  ctx.strokeStyle = '#ebcc8f';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(17, 17, 478, 478);
+  ctx.strokeRect(25, 25, 462, 462);
+  for (let y = 0; y < 512; y += 3) {
+    for (let x = y % 2; x < 512; x += 4) {
+      ctx.fillStyle = (x + y) % 7 < 3 ? '#ecd2a02c' : '#382b222e';
+      ctx.fillRect(x, y, 3, 2);
+    }
+  }
+  const map = new T.CanvasTexture(canvas);
+  map.colorSpace = T.SRGBColorSpace;
+  map.anisotropy = 4;
+  const rug = mesh(new T.PlaneGeometry(13.5, 12.4), new T.MeshStandardMaterial({ map, roughness: 1 }), 0, -2.149, 0);
+  rug.rotation.x = -Math.PI / 2;
+  rug.castShadow = false;
+  return rug;
+}
+
 export function furniture(setting: Setting) {
   const group = new T.Group();
+  const scenery = new T.Group();
+  group.add(scenery);
   const park = setting === 'park';
-  const tabletop = material(park ? '#67736b' : '#735139');
-  const tableSurface = park ? stone('#737d73','#a4afa0','#465c53') :
-    new T.MeshStandardMaterial({map:grain('#966547','#523723'),roughness:.65});
-  const ground = material(park ? '#3b5947' : '#453629');
-  group.add(mesh(new RoundedBoxGeometry(10.45,.34,9.7,4,.083),tableSurface,0,-.32,0),
-    box(100,.25,100,ground,0,-2.28,0));
-  for (const x of [-4.2,4.2]) for (const z of [-3.8,3.8]) {
-    group.add(box(.42,1.72,.45,tabletop,x,-1.3,z));
+  const tabletop = material(park ? '#5c687c' : '#735139');
+  const tableSurface = park ? stone('#39465d','#5d6b82','#263047') :
+    new T.MeshStandardMaterial({map:grain('#563d2e','#34251d'),roughness:.63});
+  const ground = park ? material('#475c4d') : woodenFloor();
+  group.add(mesh(new RoundedBoxGeometry(tabletopSize.width, tabletopSize.height, tabletopSize.depth, 4, .083),tableSurface,0,tabletopSize.y,0));
+  scenery.add(box(100,.25,100,ground,0,-2.28,0));
+  for (const edge of [-1, 1]) {
+    scenery.add(box(9.12,.42,.24,tabletop,0,-.66,edge * 4.87));
+    scenery.add(box(.24,.42,9.66,tabletop,edge * 4.5,-.66,0));
   }
-  const border = park ? stone('#273932','#5a7368','#192923') :
-    new T.MeshStandardMaterial({map:grain('#513625','#281d1a'),roughness:.43});
-  const inlay = material(park ? '#a5b6a3' : '#b38752',.48,.32);
+  for (const x of [-4.32,4.32]) for (const z of [-4.69,4.69]) {
+    scenery.add(box(.49,1.7,.53,tabletop,x,-1.31,z));
+  }
+  const border = new T.MeshStandardMaterial({
+    map: park ? grain('#9e6234','#734623') : grain('#4a2c1d','#301e16'), roughness: .48,
+  });
+  const inlay = material(park ? '#dcb77e' : '#e6b34d',.4,.26);
   group.add(mesh(new RoundedBoxGeometry(8.62,.26,8.62,4,.067),border,0,-.162,0));
   for (const edge of [-4.23,4.23]) {
     group.add(box(8.47,.018,.014,inlay,0,-.032,edge));
@@ -318,7 +406,7 @@ export function furniture(setting: Setting) {
   }
   if (park) {
     const landscaping=new T.Group();
-    const path=[material('#aaa494'),material('#b1ad9d'),material('#9c9b8d')];
+    const path=[material('#817e72'),material('#8a8678'),material('#79776e')];
     for (let row=0;row<3;row++) for (let col=-12;col<=12;col++) {
       const slab=box(1.54,.052,1.23,path[(col+12+row*2)%3],col*1.58+(row%2)*.75,-2.12,-10+row*1.27);
       landscaping.add(slab);
@@ -355,14 +443,24 @@ export function furniture(setting: Setting) {
     }
     batchRoom(landscaping);
     landscaping.traverse(object=>{ object.castShadow=false; });
-    group.add(landscaping);
+    scenery.add(landscaping);
   } else {
+    const contact = mesh(new T.PlaneGeometry(12.5, 11.8), new T.MeshBasicMaterial({
+      map: softContactTexture(), transparent: true, opacity: .76, depthWrite: false,
+    }), 0, -2.143, 0);
+    contact.rotation.x = -Math.PI / 2;
+    contact.castShadow = contact.receiveShadow = false;
+    scenery.add(wovenRug(), contact);
     const room = new T.Group();
-    const wall = material('#655449');
+    const wall = material('#333951');
     const shelf = material('#5c3b2b');
-    const books = ['#9b593e','#6f8068','#b38c59','#615b78','#ad9c7c'].map(c=>material(c));
+    const molding = material('#51311f');
+    const books = ['#995334','#576f55','#b28043','#584761','#a88760'].map(c=>material(c));
     room.add(box(32,13,.35,wall,0,4.3,-12.4),box(.4,13,28,wall,-13,4.3,0));
+    room.add(box(26,.32,.18,molding,0,-2,-12.15),box(.18,.32,24.4,molding,-12.75,-2,0));
     for (const x of [-9.3,-5.4,6.4,10.4]) {
+      room.add(box(3.73,.44,.96,molding,x,-1.94,-11.38),
+        box(3.79,.095,1.02,shelf,x,-1.74,-11.38));
       room.add(box(3.5,6.7,.27,shelf,x,1.24,-11.8));
       for (let row=0;row<5;row++) {
         const y = -1.65+row*1.24;
@@ -374,22 +472,39 @@ export function furniture(setting: Setting) {
       }
       for (const side of [-1,1]) room.add(box(.15,6.55,1.03,shelf,x+side*1.8,1.36,-11.38));
     }
-    const glass = new T.MeshStandardMaterial({ color:'#c3d0b8', emissive:'#dfb47a', emissiveIntensity:.7, roughness:.75 });
+    const glass = new T.MeshStandardMaterial({ color:'#687faf', emissive:'#637fcb', emissiveIntensity:.45, roughness:.75 });
     room.add(box(4.6,5.9,.09,glass,.32,2.1,-12.14));
     for (const x of [-1.99,.32,2.63]) room.add(box(.13,6,.19,shelf,x,2.1,-12));
     for (const y of [-.9,2.07,5.12]) room.add(box(4.7,.13,.19,shelf,.32,y,-12));
     batchRoom(room);
+    // The shadow camera covers the table. Ground the distant bookcases locally at their plinths.
+    room.traverse(object => { object.castShadow = false; });
+    const threshold = new T.PlaneGeometry(3.78, .48);
+    threshold.rotateX(-Math.PI / 2);
+    threshold.setAttribute('color', new T.Float32BufferAttribute([
+      1,1,1,.42, 1,1,1,.42, 1,1,1,0, 1,1,1,0,
+    ], 4));
+    const shade = new T.MeshBasicMaterial({
+      color: '#392319', vertexColors: true, transparent: true, depthWrite: false, toneMapped: false,
+    });
+    for (const x of [-9.3,-5.4,6.4,10.4]) {
+      const shadow = new T.Mesh(threshold, shade);
+      shadow.position.set(x,-2.15,-10.67);
+      room.add(shadow);
+    }
     const opposite = room.clone();
     opposite.rotation.y = Math.PI;
-    group.add(room,opposite);
+    scenery.add(room,opposite);
     const brass = material('#a18050',.36,.56);
-    const lamp = new T.MeshStandardMaterial({ color:'#3f7256', emissive:'#30573e', emissiveIntensity:.35 });
-    group.add(mesh(new T.CylinderGeometry(.26,.36,.09,20),brass,4.64,-.12,-3.8),
+    const lamp = new T.MeshPhysicalMaterial({ color: '#3a4d71', roughness: .33, clearcoat: .45 });
+    const diffuser = new T.MeshStandardMaterial({ color: '#ffe7ac', emissive: '#ffb663', emissiveIntensity: 1.8 });
+    scenery.add(mesh(new T.CylinderGeometry(.26,.36,.09,20),brass,4.64,-.12,-3.8),
       mesh(new T.CylinderGeometry(.044,.063,1.05,12),brass,4.64,.43,-3.8),
-      box(.93,.25,.48,lamp,4.64,1,-3.8));
-    const glow = new T.PointLight('#f8ca85',10,7,2);
-    glow.position.set(4.64,.85,-3.72);
-    group.add(glow);
+      mesh(new RoundedBoxGeometry(1.06,.34,.56,4,.13),lamp,4.64,1,-3.8),
+      mesh(new RoundedBoxGeometry(.86,.08,.39,3,.035),diffuser,4.64,.835,-3.8));
+    const glow = new T.PointLight('#ffc477',21,6.2,2);
+    glow.position.set(4.5,.78,-3.65);
+    scenery.add(glow);
   }
-  return group;
+  return { group, scenery };
 }

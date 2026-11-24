@@ -1,7 +1,11 @@
 import * as T from "three";
-import type { Color, Move, Piece, Square } from "chess.js";
-import { box, mesh, pieceModel, type Setting } from "./models";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import type { Color, Move, Piece, PieceSymbol, Square } from "chess.js";
+import { box, furniture, mesh, pieceModel, softContactTexture, tabletopSize, type Setting } from "./models";
 import { movesShiftPair, type Shift } from "./rules";
+import { StageCamera, type CameraShot } from "./stage-camera";
+import { flatPieceMaterial, moveDotTexture, shiftPortalTexture, sparkGeometry } from "./stage-textures";
+export type { CameraShot } from "./stage-camera";
 
 const alphabet = "abcdefgh";
 const boardHeight = 0.004;
@@ -11,7 +15,17 @@ const point = (s: Square) =>
 const smooth = (x: number) => x * x * (3 - 2 * x);
 const flip = (side: Color) => (side === "w" ? 1 : -1);
 type Board = (({ square: Square } & Piece) | null)[][];
-type PieceMesh = T.Group & { userData: Piece & { square: Square } };
+type PieceMesh = T.Group & { userData: Piece & { square: Square; restScale?: T.Vector3; symbol?: T.Sprite } };
+type Drag = {
+  id: number;
+  x: number;
+  y: number;
+  piece: PieceMesh;
+  active: boolean;
+  wasSelected: boolean;
+  movedAt: number;
+  tilt: T.Vector2;
+};
 type Animation = {
   duration: number;
   start: number;
@@ -22,21 +36,31 @@ type AppliedShift = { event: Shift; pairs: ReadonlySet<number> };
 
 export class Stage {
   readonly canvas: HTMLCanvasElement;
+  private readonly seats: Record<Color, HTMLElement>;
+  private readonly seatPoint = new T.Vector3();
   private readonly renderer: T.WebGLRenderer;
   private readonly scene = new T.Scene();
-  private readonly camera = new T.OrthographicCamera(-5, 5, 5, -5, 0.1, 40);
-  private readonly light = new T.DirectionalLight("#fff5e4", 1.7);
-  private readonly sky = new T.HemisphereLight("#f3f7ff", "#b3aaa2", 1.6);
-  private readonly rim = new T.DirectionalLight("#d9e6ff", 1.18);
+  private readonly rig = new StageCamera();
+  private readonly light = new T.DirectionalLight("#fff0db", 2.35);
+  private readonly sky = new T.HemisphereLight("#f0f4ff", "#a38a70", 0.85);
+  private readonly rim = new T.DirectionalLight("#d9e8ff", 1.35);
   private readonly meshes = new Map<Square, PieceMesh>();
   private readonly pieceLayer = new T.Group();
+  private readonly flatPieces = new T.Group();
+  private readonly flatMaterials = new Map<string, T.SpriteMaterial>();
+  private readonly contactShadows = new T.InstancedMesh(
+    new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+    new T.MeshBasicMaterial({ map: softContactTexture(), transparent: true, depthWrite: false, toneMapped: false }),
+    32,
+  );
+  private readonly contactMatrix = new T.Matrix4();
   private readonly legalTargets = new Set<Square>();
   private inputEnabled = true;
   private activeSide: Color = "w";
   private readonly hoverMarker = new T.Mesh(
-    new T.RingGeometry(0.33, 0.39, 40),
+    new T.RingGeometry(0.32, 0.43, 40),
     new T.MeshBasicMaterial({
-      color: "#17241e",
+      color: "#54ffd5",
       transparent: true,
       opacity: 0.9,
       depthWrite: false,
@@ -44,18 +68,25 @@ export class Stage {
     }),
   );
   private readonly dots = new T.Group();
+  private readonly selectionRing = new T.Mesh(
+    new T.RingGeometry(0.648, 0.678, 4, 1, Math.PI / 4),
+    new T.MeshBasicMaterial({ color: "#ffdc75", transparent: true, opacity: 0.95,
+      depthWrite: false, side: T.DoubleSide, toneMapped: false }),
+  );
   private readonly legalDots = new Map<Square, T.Mesh>();
-  private readonly dotGeometry = new T.CircleGeometry(0.12, 24);
+  private readonly dotGeometry = new T.PlaneGeometry(0.41, 0.41);
   private readonly captureGeometry = new T.RingGeometry(0.39, 0.46, 32);
   private readonly dotMaterial = new T.MeshBasicMaterial({
-    color: "#203930",
+    map: moveDotTexture(),
     transparent: true,
-    opacity: 0.64,
+    opacity: 0.98,
     toneMapped: false,
     depthWrite: false,
     side: T.DoubleSide,
   });
-  private readonly captureMaterial = this.dotMaterial.clone();
+  private readonly captureMaterial = new T.MeshBasicMaterial({
+    color: "#ff745f", transparent: true, opacity: 0.98, toneMapped: false, depthWrite: false,
+  });
   private readonly markers = new Map<Square, T.Mesh>();
   private readonly models = new Map<
     string,
@@ -71,8 +102,43 @@ export class Stage {
   private readonly hitPoint = new T.Vector3();
   private readonly groundPlane = new T.Plane(new T.Vector3(0, 1, 0), -boardHeight);
   private readonly dragPlane = new T.Plane(new T.Vector3(0, 1, 0), -0.34);
-  private drag?: { id: number; x: number; y: number; piece?: PieceMesh; active: boolean };
+  private drag?: Drag;
   private dropped?: { from: Square; to: Square };
+  private selected?: Square;
+  private checked?: Square;
+  private checkStarted = 0;
+  private hovered?: Square;
+  private room?: T.Group;
+  private scenery?: T.Group;
+  private setting?: Setting;
+  private overhead = false;
+  private presentation = false;
+  private speed: "normal" | "fast" = "normal";
+  private cameraShake = true;
+  private showHints = true;
+  private hudTop = 0;
+  private viewportHeight = 720;
+  private readonly tiles: T.InstancedMesh[] = [];
+  private readonly tileMatrix = new T.Matrix4();
+  private readonly effects = new T.Group();
+  private readonly shiftTrails = new T.Group();
+  private readonly particleGeometry = new T.IcosahedronGeometry(0.055, 0);
+  private readonly sparkGeometry = sparkGeometry();
+  private readonly chipGeometry = new T.TetrahedronGeometry(0.088);
+  private readonly effectMaterials = ["#ffd468", "#60efd1", "#ff8c79", "#cba8ff"].map(color =>
+    new T.MeshBasicMaterial({ color, side: T.DoubleSide, depthWrite: false, toneMapped: false }));
+  private particles: { object: T.Mesh; velocity: T.Vector3; born: number; life: number }[] = [];
+  private shakeUntil = 0;
+  private lastTick = 0;
+  private readonly motes = new T.Points(
+    new T.BufferGeometry().setAttribute("position", new T.Float32BufferAttribute(
+      Array.from({ length: 24 }, (_, index) => [
+        Math.sin(index * 2.399) * (4.6 + index % 3),
+        0.4 + index % 7 * 0.35,
+        Math.cos(index * 2.399) * (4.6 + index % 3),
+      ]).flat(), 3)),
+    new T.PointsMaterial({ color: "#fff1bf", size: 0.04, transparent: true, opacity: 0.55, depthWrite: false }),
+  );
   private readonly markGeometry = new T.PlaneGeometry(1, 1);
   private readonly moveMarker = new T.MeshBasicMaterial({
     color: "#e9c251",
@@ -83,27 +149,20 @@ export class Stage {
   });
   private readonly shiftMarkers = [
     new T.MeshBasicMaterial({
-      color: "#139de0",
+      color: "#47c8ff",
       transparent: true,
       opacity: 0.24,
       depthWrite: false,
       side: T.DoubleSide,
     }),
     new T.MeshBasicMaterial({
-      color: "#925beb",
+      color: "#b78cff",
       transparent: true,
       opacity: 0.24,
       depthWrite: false,
       side: T.DoubleSide,
     }),
   ];
-  private readonly selectMarker = new T.MeshBasicMaterial({
-    color: "#f2cb62",
-    transparent: true,
-    opacity: 0.69,
-    depthWrite: false,
-    side: T.DoubleSide,
-  });
   private readonly checkMarker = new T.MeshBasicMaterial({
     color: "#e44444",
     transparent: true,
@@ -111,6 +170,9 @@ export class Stage {
     depthWrite: false,
     side: T.DoubleSide,
   });
+  private readonly checkRipple = new T.Mesh(this.captureGeometry, new T.MeshBasicMaterial({
+    color: "#ff695d", transparent: true, depthWrite: false, toneMapped: false,
+  }));
   private readonly linkMaterials = this.shiftMarkers.map(
     (surface) =>
       new T.MeshBasicMaterial({
@@ -123,36 +185,46 @@ export class Stage {
         toneMapped: false,
       }),
   );
+  private readonly portalMap = shiftPortalTexture();
   private readonly shiftEffects = this.shiftMarkers.map(({ color }) => {
-    const geometry = new T.RingGeometry(0.41, 0.48, 48);
+    const geometry = new T.PlaneGeometry(1.3, 1.3);
     const material = new T.MeshBasicMaterial({
       color,
+      map: this.portalMap,
       transparent: true,
+      blending: T.AdditiveBlending,
+      depthTest: false,
       depthWrite: false,
       side: T.DoubleSide,
       toneMapped: false,
     });
-    const rings = [new T.Mesh(geometry, material), new T.Mesh(geometry, material)];
+    const rings = [new T.Mesh(geometry, material), new T.Mesh(geometry, material.clone())];
     rings.forEach((ring) => {
       ring.rotation.x = -Math.PI / 2;
+      ring.renderOrder = 3;
       ring.visible = false;
     });
     return rings;
   });
   private readonly tileMaterials = [
-    new T.MeshStandardMaterial({ roughness: 0.92 }),
-    new T.MeshStandardMaterial({ roughness: 0.92 }),
+    new T.MeshStandardMaterial({ roughness: 0.6 }),
+    new T.MeshStandardMaterial({ roughness: 0.6 }),
   ];
   private readonly badgeGeometry = new T.PlaneGeometry(1, 1);
   private readonly pairBadges = [this.pairBadge("A", "#167ab0"), this.pairBadge("B", "#7441bc")];
   private arrival?: Animation;
   private tween?: Tween;
   private side: Color = "w";
+  private facingAngle?: number;
   private needsRender = true;
   private readonly motion = matchMedia("(prefers-reduced-motion: reduce)");
   onSquare?: (square: Square, keepSelected?: boolean) => void;
 
   constructor(host: HTMLElement) {
+    this.seats = {
+      w: document.getElementById("white-player")!,
+      b: document.getElementById("black-player")!,
+    };
     this.renderer = new T.WebGLRenderer({
       antialias: true,
       alpha: true,
@@ -162,21 +234,35 @@ export class Stage {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
-    this.renderer.toneMapping = T.NeutralToneMapping;
+    this.renderer.toneMapping = T.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.02;
+    const studio = new RoomEnvironment();
+    const reflections = new T.PMREMGenerator(this.renderer);
+    this.scene.environment = reflections.fromScene(studio, 0.06).texture;
+    this.scene.environmentIntensity = 0.36;
+    reflections.dispose();
+    studio.dispose();
     this.canvas = this.renderer.domElement;
-    this.canvas.setAttribute("aria-label", "Bàn cờ 3D");
+    this.effects.add(this.shiftTrails);
     host.append(this.canvas);
-    this.scene.add(this.sky, this.light, this.rim, this.links, this.pieceLayer);
-    this.scene.add(this.labels.w, this.labels.b);
+    this.contactShadows.count = 0;
+    this.contactShadows.frustumCulled = false;
+    this.contactShadows.instanceMatrix.setUsage(T.DynamicDrawUsage);
+    this.scene.add(this.sky, this.light, this.rim, this.links, this.contactShadows, this.pieceLayer, this.flatPieces);
+    this.flatPieces.visible = false;
+    this.scene.add(this.labels.w, this.labels.b, this.effects, this.motes);
     this.scene.add(...this.shiftEffects.flat());
-    this.captureMaterial.color.set("#9c2e28");
     this.hoverMarker.rotation.x = -Math.PI / 2;
     this.hoverMarker.visible = false;
-    this.scene.add(this.hoverMarker, this.dots);
-    this.light.position.set(-2.8, 13, 3.5);
-    this.rim.position.set(5, 6, -4);
+    this.selectionRing.rotation.x = -Math.PI / 2;
+    this.selectionRing.visible = false;
+    this.checkRipple.rotation.x = -Math.PI / 2;
+    this.checkRipple.visible = false;
+    this.scene.add(this.hoverMarker, this.selectionRing, this.checkRipple, this.dots);
+    this.light.position.set(-4.5, 11.8, 5.4);
+    this.rim.position.set(4.5, 5, -5.4);
     this.light.castShadow = true;
-    this.light.shadow.mapSize.set(1024, 1024);
+    this.light.shadow.mapSize.set(2048, 2048);
     Object.assign(this.light.shadow.camera, {
       left: -6.4,
       right: 6.4,
@@ -185,21 +271,22 @@ export class Stage {
       near: 0.8,
       far: 23,
     });
-    this.light.shadow.radius = 2;
-    this.light.shadow.normalBias = 0.018;
+    this.light.shadow.radius = 1.6;
+    this.light.shadow.normalBias = 0.014;
     this.light.shadow.bias = -0.00017;
-    const base = box(8.64, 0.27, 8.64, new T.MeshStandardMaterial({
-      color: "#273734", roughness: 0.78,
-    }), 0, -0.22, 0);
+    const base = box(8.02, 0.08, 8.02, new T.MeshStandardMaterial({
+      color: "#332e28", roughness: 0.64,
+    }), 0, -0.052, 0);
     base.castShadow = false;
     this.scene.add(base);
-    const tileGeometry = new T.BoxGeometry(1, 0.08, 1);
+    const tileGeometry = new T.BoxGeometry(0.983, 0.08, 0.983);
     const tiles = this.tileMaterials.map((surface) => {
       const tile = new T.InstancedMesh(tileGeometry, surface, 32);
       tile.receiveShadow = true;
       this.scene.add(tile);
       return tile;
     });
+    this.tiles.push(...tiles);
     const matrix = new T.Matrix4();
     for (let z = 0; z < 8; z++)
       for (let x = 0; x < 8; x++) {
@@ -238,22 +325,32 @@ export class Stage {
     this.canvas.addEventListener("pointercancel", cancelPointer);
     this.canvas.addEventListener("lostpointercapture", cancelPointer);
     this.canvas.addEventListener("pointerleave", () => this.clearHover());
+    const renderSize = new T.Vector2();
     const resize = () => {
       const w = host.clientWidth;
       const h = host.clientHeight;
       if (!w || !h) return;
-      this.renderer.setSize(w, h, false);
-      const aspect = w / h;
-      const height = Math.max(9.05, 9.15 / aspect);
-      this.camera.top = height / 2;
-      this.camera.bottom = -height / 2;
-      this.camera.right = (height * aspect) / 2;
-      this.camera.left = -this.camera.right;
-      this.camera.updateProjectionMatrix();
+      this.renderer.getSize(renderSize);
+      if (renderSize.x !== w || renderSize.y !== h) this.renderer.setSize(w, h, false);
+      if (this.rig.camera.aspect !== w / h) {
+        this.rig.camera.aspect = w / h;
+        this.rig.camera.updateProjectionMatrix();
+      }
+      this.viewportHeight = h;
       this.needsRender = true;
     };
-    new ResizeObserver(resize).observe(host);
-    resize();
+    const header = host.parentElement?.querySelector(".player-hud");
+    const layout = () => {
+      resize();
+      const viewport = host.getBoundingClientRect();
+      const top = header?.getBoundingClientRect();
+      this.hudTop = top?.height ? top.bottom - viewport.top : 0;
+    };
+    const observer = new ResizeObserver(layout);
+    observer.observe(host);
+    if (header) observer.observe(header);
+    this.motion.addEventListener("change", () => { this.needsRender = true; });
+    layout();
     this.setSetting("park");
     this.frame("w");
     this.renderer.setAnimationLoop((ms) => this.tick(ms));
@@ -265,7 +362,7 @@ export class Stage {
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       1 - ((event.clientY - rect.top) / rect.height) * 2,
     );
-    this.raycaster.setFromCamera(this.pointer, this.camera);
+    this.raycaster.setFromCamera(this.pointer, this.viewCamera);
   }
 
   private press(event: PointerEvent) {
@@ -274,14 +371,23 @@ export class Stage {
     this.finishArrival();
     this.scene.updateMatrixWorld(true);
     this.aimPointer(event);
-    const square = this.hitPiece() ?? this.floorSquare();
+    const square = this.pickSquare();
     const piece = square ? this.meshes.get(square) : undefined;
+    if (!piece || piece.userData.color !== this.activeSide) {
+      if (square) this.onSquare?.(square);
+      return;
+    }
+    const wasSelected = square === this.selected;
+    this.onSquare?.(square!, true);
     this.drag = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      piece: piece?.userData.color === this.activeSide ? piece : undefined,
+      piece,
       active: false,
+      wasSelected,
+      movedAt: performance.now(),
+      tilt: new T.Vector2(),
     };
     this.canvas.setPointerCapture(event.pointerId);
   }
@@ -291,25 +397,35 @@ export class Stage {
     const drag = this.drag;
     if (drag && drag.id !== event.pointerId) return;
     this.aimPointer(event);
-    if (drag?.piece && !drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 7) {
+    if (drag && !drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 7) {
       drag.active = true;
       this.clearHover();
       this.onSquare?.(drag.piece.userData.square, true);
       this.canvas.style.cursor = "grabbing";
     }
-    if (drag?.active && drag.piece) {
+    if (drag?.active) {
       const target = this.floorSquare();
       const legal = target && this.legalTargets.has(target) ? target : undefined;
       this.showHover(legal);
-      if (this.raycaster.ray.intersectPlane(this.dragPlane, this.hitPoint)) {
-        drag.piece.position.copy(this.hitPoint);
-        this.renderer.shadowMap.needsUpdate = true;
-        this.needsRender = true;
+      const { position, rotation } = drag.piece;
+      if (this.raycaster.ray.intersectPlane(this.dragPlane, this.hitPoint) && !position.equals(this.hitPoint)) {
+        const now = performance.now();
+        const seconds = T.MathUtils.clamp((now - drag.movedAt) / 1000, 0.008, 0.05);
+        const vx = (this.hitPoint.x - position.x) / seconds;
+        const vz = (this.hitPoint.z - position.z) / seconds;
+        drag.tilt.set(T.MathUtils.clamp(vz * 0.015, -0.24, 0.24), T.MathUtils.clamp(-vx * 0.015, -0.24, 0.24));
+        drag.movedAt = now;
+        position.copy(this.hitPoint);
+        if (!this.motion.matches) {
+          rotation.set(T.MathUtils.lerp(rotation.x, drag.tilt.x, 0.45), 0,
+            T.MathUtils.lerp(rotation.z, drag.tilt.y, 0.45));
+        }
+        this.invalidateShadows();
       }
       return;
     }
     if (event.pointerType === "touch") return;
-    const square = this.hitPiece() ?? this.floorSquare();
+    const square = this.pickSquare();
     const piece = square && this.meshes.get(square);
     const movable = piece && piece.userData.color === this.activeSide;
     const hover = square && (movable || this.legalTargets.has(square)) ? square : undefined;
@@ -322,7 +438,7 @@ export class Stage {
     if (!drag || drag.id !== event.pointerId) return;
     this.aimPointer(event);
     const tile = this.floorSquare();
-    if (drag.active && drag.piece) {
+    if (drag.active) {
       const from = drag.piece.userData.square;
       this.cancelDrag();
       if (tile && this.legalTargets.has(tile)) {
@@ -332,21 +448,25 @@ export class Stage {
       return;
     }
     this.cancelDrag();
-    const square = this.hitPiece() ?? tile;
-    if (square) this.onSquare?.(square);
+    if (drag.wasSelected) this.onSquare?.(drag.piece.userData.square);
   }
 
   private cancelDrag() {
     const drag = this.drag;
     if (!drag) return;
     this.drag = undefined;
-    if (drag.active && drag.piece) {
+    if (drag.active) {
       this.place(drag.piece.userData.square, drag.piece);
-      this.renderer.shadowMap.needsUpdate = true;
       this.clearHover();
-      this.needsRender = true;
+      this.invalidateShadows();
     }
     if (this.canvas.hasPointerCapture(drag.id)) this.canvas.releasePointerCapture(drag.id);
+  }
+
+  private pickSquare() {
+    const floor = this.floorSquare();
+    return this.overhead || floor && this.selected && this.legalTargets.has(floor)
+      ? floor : this.hitPiece() ?? floor;
   }
 
   private floorSquare() {
@@ -366,6 +486,7 @@ export class Stage {
   private showHover(square?: Square) {
     if (square === this.hoverMarker.userData.square) return;
     this.hoverMarker.userData.square = square;
+    this.hovered = square;
     this.hoverMarker.visible = Boolean(square);
     if (square) this.hoverMarker.position.copy(point(square)).setY(0.019);
     this.needsRender = true;
@@ -380,7 +501,7 @@ export class Stage {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 64;
     const c = canvas.getContext("2d")!;
-    c.font = "bold 44px system-ui";
+    c.font = "700 43px system-ui";
     c.textAlign = "center";
     c.textBaseline = "middle";
     c.fillStyle = "#eee2cb";
@@ -388,7 +509,7 @@ export class Stage {
     const texture = new T.CanvasTexture(canvas);
     texture.colorSpace = T.SRGBColorSpace;
     const item = new T.Mesh(
-      new T.PlaneGeometry(0.23, 0.23),
+      new T.PlaneGeometry(0.28, 0.28),
       new T.MeshBasicMaterial({
         map: texture,
         transparent: true,
@@ -404,18 +525,18 @@ export class Stage {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 128;
     const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = color;
+    ctx.beginPath();
     ctx.strokeStyle = color;
     ctx.lineWidth = 8;
     ctx.strokeRect(5, 5, 118, 118);
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.roundRect(89, 0, 39, 39, [0, 0, 0, 8]);
+    ctx.roundRect(86, 0, 42, 42, [0, 0, 0, 8]);
     ctx.fill();
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 27px system-ui";
+    ctx.font = "bold 32px system-ui";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(letter, 108, 20);
+    ctx.fillText(letter, 107, 21);
     const map = new T.CanvasTexture(canvas);
     map.colorSpace = T.SRGBColorSpace;
     return new T.MeshBasicMaterial({
@@ -424,11 +545,69 @@ export class Stage {
   }
 
   setSetting(setting: Setting) {
+    if (this.setting === setting) return;
+    this.setting = setting;
+    if (this.room) {
+      this.scene.remove(this.room);
+      const geometries = new Set<T.BufferGeometry>();
+      const materials = new Set<T.Material>();
+      this.room.traverse(object => {
+        if (!(object instanceof T.Mesh)) return;
+        geometries.add(object.geometry);
+        for (const material of Array.isArray(object.material) ? object.material : [object.material])
+          materials.add(material);
+      });
+      geometries.forEach(geometry => geometry.dispose());
+      materials.forEach(material => {
+        (material as T.MeshStandardMaterial).map?.dispose();
+        material.dispose();
+      });
+    }
+    const { group, scenery } = furniture(setting);
+    this.room = group;
+    this.scenery = scenery;
+    this.updateScenery();
+    this.scene.add(this.room);
     const [light, dark] = setting === "park"
-      ? ["#eee5d3", "#60766b"]
-      : ["#efe4d2", "#667383"];
+      ? ["#dfd8c5", "#556780"]
+      : ["#e0c7a2", "#83604c"];
     this.tileMaterials[0].color.set(light);
     this.tileMaterials[1].color.set(dark);
+    this.invalidateShadows();
+  }
+
+  setPresentation(enabled: boolean) {
+    this.presentation = enabled;
+    this.updateScenery();
+    if (!enabled && this.rig.camera.view?.enabled) this.rig.camera.clearViewOffset();
+    this.setInteraction(!enabled, this.activeSide);
+    this.needsRender = true;
+  }
+
+  private updateScenery() {
+    if (this.scenery) this.scenery.visible = !this.presentation;
+    this.scene.background = this.presentation ? null
+      : new T.Color(this.setting === "park" ? "#344650" : "#2c2c40");
+  }
+
+  suspend() {
+    this.cancelAnimations();
+    this.setInteraction(false);
+    this.renderer.setAnimationLoop(null);
+    this.canvas.hidden = true;
+  }
+
+  setShot(shot?: CameraShot) {
+    this.rig.setShot(shot);
+    this.sky.intensity = shot ? 0.38 : 0.85;
+    this.invalidateShadows();
+  }
+
+  preferences(options: { speed?: "normal" | "fast"; cameraShake?: boolean; showHints?: boolean }) {
+    this.speed = options.speed ?? this.speed;
+    this.cameraShake = options.cameraShake ?? this.cameraShake;
+    this.showHints = options.showHints ?? this.showHints;
+    this.dots.visible = this.showHints;
     this.needsRender = true;
   }
 
@@ -456,20 +635,20 @@ export class Stage {
         const object = models.pool.pop() ?? Object.assign(models.template.clone(), {
           userData: { color, type, square },
         });
+        object.userData.restScale ??= object.scale.clone();
         this.pieceLayer.add(object);
         this.place(square, object);
+        if (this.overhead) this.addFlatPiece(object);
         changed = true;
       }
     }
-    if (changed) {
-      this.renderer.shadowMap.needsUpdate = true;
-      this.needsRender = true;
-    }
+    if (changed) this.invalidateShadows();
   }
 
   private place(square: Square, object: PieceMesh) {
     object.position.copy(point(square));
     object.rotation.set(0, 0, 0);
+    if (object.userData.restScale) object.scale.copy(object.userData.restScale);
     object.userData.square = square;
     this.meshes.set(square, object);
   }
@@ -477,7 +656,22 @@ export class Stage {
   private release(square: Square, object: PieceMesh) {
     this.meshes.delete(square);
     this.pieceLayer.remove(object);
+    if (object.userData.symbol) this.flatPieces.remove(object.userData.symbol);
     this.models.get(object.userData.color + object.userData.type)!.pool.push(object);
+  }
+
+  private addFlatPiece(piece: PieceMesh) {
+    const data = piece.userData;
+    if (!data.symbol) {
+      const key = data.color + data.type;
+      let surface = this.flatMaterials.get(key);
+      if (!surface) {
+        surface = flatPieceMaterial(data);
+        this.flatMaterials.set(key, surface);
+      }
+      data.symbol = new T.Sprite(surface);
+    }
+    this.flatPieces.add(data.symbol);
   }
 
   revealPieces() {
@@ -509,8 +703,7 @@ export class Stage {
     if (!this.arrival) return;
     this.arrival.render(1);
     this.arrival = undefined;
-    this.renderer.shadowMap.needsUpdate = true;
-    this.needsRender = true;
+    this.invalidateShadows();
   }
 
   indicate(
@@ -522,6 +715,13 @@ export class Stage {
     showRecent = false,
   ) {
     if (this.shifting) return;
+    this.selected = chosen;
+    if (checked && checked !== this.checked) this.checkStarted = performance.now();
+    this.checked = checked;
+    this.checkRipple.visible = Boolean(checked);
+    if (checked) this.checkRipple.position.copy(point(checked)).setY(0.031);
+    this.selectionRing.visible = Boolean(chosen);
+    if (chosen) this.selectionRing.position.copy(point(chosen)).setY(0.025);
     const recent = showRecent ? this.recentShift : undefined;
     const displayed = shift ?? recent?.event;
     const pairs = shift ? undefined : recent?.pairs;
@@ -541,6 +741,7 @@ export class Stage {
       }
       dot.visible = true;
       dot.geometry = capture ? this.captureGeometry : this.dotGeometry;
+      dot.position.y = capture ? 0.045 : 0.022;
       dot.material = capture ? this.captureMaterial : this.dotMaterial;
     }
     for (const [square, marker] of this.markers) {
@@ -550,18 +751,14 @@ export class Stage {
         ) ?? -1;
       marker.visible =
         index >= 0 ||
-        square === chosen ||
-        square === lastMove?.from ||
-        square === lastMove?.to ||
+        (square !== chosen && (square === lastMove?.from || square === lastMove?.to)) ||
         square === checked;
       marker.material =
         square === checked
           ? this.checkMarker
-          : square === chosen
-            ? this.selectMarker
-            : index >= 0
-              ? this.shiftMarkers[index]
-              : this.moveMarker;
+          : index >= 0
+            ? this.shiftMarkers[index]
+            : this.moveMarker;
     }
     this.needsRender = true;
     this.showShift(displayed, Boolean(shift), pairs);
@@ -569,7 +766,7 @@ export class Stage {
 
   private showShift(shift: Shift | undefined, arrows: boolean, pairs?: ReadonlySet<number>) {
     const linkKey = shift
-      ? [this.side, shift.effect, arrows, ...shift.pairs.map((pair, index) =>
+      ? [this.side, this.overhead, shift.effect, arrows, ...shift.pairs.map((pair, index) =>
           (!pairs || pairs.has(index)) && [pair, ...pair.map((square) => this.meshes.has(square))].join(":"),
         )].join("|")
       : "";
@@ -593,48 +790,58 @@ export class Stage {
       const first = this.meshes.get(a);
       const second = this.meshes.get(b);
       if (!movesShiftPair(shift.effect, first?.userData, second?.userData)) return;
-      const from = point(a).setY(0.042);
-      const to = point(b).setY(0.042);
-      const direction = to.clone().sub(from).normalize();
-      const side = new T.Vector3(-direction.z, 0, direction.x);
-      from.addScaledVector(direction, 0.23).addScaledVector(side, 0.25);
-      to.addScaledVector(direction, -0.23).addScaledVector(side, 0.25);
-      const points: number[] = [];
-      const stroke = (start: T.Vector3, end: T.Vector3) => {
-        const offset = new T.Vector3(start.z - end.z, 0, end.x - start.x)
-          .normalize().multiplyScalar(0.023);
-        const a = start.clone().add(offset);
-        const b = start.clone().sub(offset);
-        const c = end.clone().add(offset);
-        const d = end.clone().sub(offset);
-        for (const point of [a, b, c, c, b, d]) points.push(point.x, point.y, point.z);
-      };
-      stroke(from, to);
-      const arrow = (end: T.Vector3, sign: number) => {
-        for (const wing of [-1, 1]) {
-          const tail = end.clone().addScaledVector(direction, -0.19 * sign)
-            .addScaledVector(side, 0.11 * wing);
-          stroke(end, tail);
-        }
-      };
-      if (first) arrow(to, 1);
-      if (second) arrow(from, -1);
-      const geometry = new T.BufferGeometry();
-      geometry.setAttribute("position", new T.Float32BufferAttribute(points, 3));
-      const connector = new T.Mesh(geometry, this.linkMaterials[index]);
-      connector.renderOrder = 4;
-      this.links.add(connector);
+      if (first) this.addShiftArrow(a, b, index, Boolean(second));
+      if (second) this.addShiftArrow(b, a, index, Boolean(first));
     });
   }
 
-  frame(side: Color, overhead = false) {
+  private addShiftArrow(a: Square, b: Square, pair: number, twoWay: boolean) {
+    const from = point(a).setY(0.09);
+    const to = point(b).setY(0.09);
+    const direction = to.clone().sub(from).normalize();
+    const bend = twoWay ? 0.60 : 0.20;
+    from.addScaledVector(direction, 0.17);
+    to.addScaledVector(direction, -0.21);
+    const middle = from.clone().lerp(to, 0.5);
+    middle.add(new T.Vector3(-direction.z * bend, this.overhead ? 0 : 0.40, direction.x * bend));
+    const curve = new T.QuadraticBezierCurve3(from, middle, to);
+    const material = this.linkMaterials[pair];
+    const path = new T.Mesh(new T.TubeGeometry(curve, 24, 0.027, 5, false), material);
+    const head = new T.Mesh(new T.ConeGeometry(0.125, 0.29, 4), material);
+    head.position.copy(curve.getPoint(0.79));
+    head.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), curve.getTangent(0.79));
+    path.renderOrder = head.renderOrder = 4;
+    this.links.add(path, head);
+  }
+
+  frame(side: Color, overhead = false, pitch = 45) {
+    this.facingAngle = undefined;
     this.side = side;
+    this.rig.playPitch = pitch;
+    this.overhead = overhead;
+    this.pieceLayer.visible = this.contactShadows.visible = !overhead;
+    this.flatPieces.visible = overhead;
+    if (overhead) for (const piece of this.meshes.values()) this.addFlatPiece(piece);
     this.labels.w.visible = side === "w";
     this.labels.b.visible = side === "b";
-    this.camera.position.set(0, 14, flip(side) * (overhead ? 0.001 : 6.8));
-    this.camera.lookAt(0, 0.08, 0);
-    this.camera.updateMatrixWorld();
-    this.needsRender = true;
+    this.linkKey = "";
+    this.invalidateShadows();
+  }
+
+  async rotateTo(side: Color) {
+    if (this.side === side && this.facingAngle === undefined) return;
+    const fromAngle = this.facingAngle ?? (this.side === "w" ? 0 : Math.PI);
+    const toAngle = side === "w" ? 0 : Math.PI;
+    const overhead = this.overhead;
+    this.labels.w.visible = false;
+    this.labels.b.visible = false;
+    await this.animate(460, (progress) => {
+      const t = smooth(progress);
+      this.facingAngle = fromAngle + (toAngle - fromAngle) * t;
+      this.needsRender = true;
+    });
+    this.facingAngle = undefined;
+    this.frame(side, overhead, this.rig.playPitch);
   }
 
   setInteraction(enabled: boolean, side: Color = "w") {
@@ -647,18 +854,22 @@ export class Stage {
   }
 
   quality(high: boolean) {
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, high ? 2 : 1));
+    const ratio = high ? Math.min(Math.max(devicePixelRatio, 1.35), 2) : 1;
+    if (this.renderer.getPixelRatio() === ratio && this.renderer.shadowMap.enabled === high) return;
+    this.renderer.setPixelRatio(ratio);
     this.renderer.shadowMap.enabled = high;
-    const size = this.canvas.getBoundingClientRect();
-    this.renderer.setSize(size.width, size.height, false);
-    this.renderer.shadowMap.needsUpdate = true;
+    this.invalidateShadows();
+  }
+
+  private invalidateShadows() {
+    if (this.renderer.shadowMap.enabled) this.renderer.shadowMap.needsUpdate = true;
     this.needsRender = true;
   }
 
   private animate(duration: number, render: Tween["render"]) {
     return new Promise<boolean>((resolve) => {
       this.tween = {
-        duration: this.motion.matches ? duration * 0.32 : duration,
+        duration: this.motion.matches ? 1 : duration * (this.speed === "fast" ? 0.58 : 1),
         start: performance.now(),
         render,
         end: resolve,
@@ -667,16 +878,22 @@ export class Stage {
   }
 
   cancelAnimations() {
+    this.facingAngle = undefined;
     this.finishArrival();
     this.cancelDrag();
     this.dropped = undefined;
     this.shifting = false;
+    this.shiftEffects.flat().forEach(ring => { ring.visible = false; });
+    this.clearShiftTrails();
+    this.particles.forEach(({ object }) => this.effects.remove(object));
+    this.particles = [];
+    this.shakeUntil = 0;
+    this.resetTiles();
     if (!this.tween) return;
     const { end } = this.tween;
     this.tween = undefined;
     for (const [square, object] of this.meshes) this.place(square, object);
-    this.renderer.shadowMap.needsUpdate = true;
-    this.needsRender = true;
+    this.invalidateShadows();
     end(false);
   }
 
@@ -700,17 +917,43 @@ export class Stage {
       const rook = this.meshes.get(corner);
       if (rook) castle = { rook, from: corner, to: ((kingSide ? "f" : "d") + rank) as Square };
     }
-    if ((!dragged || castle) && !this.motion.matches && !document.hidden) {
+    if (!this.motion.matches && !document.hidden) {
       const rookFrom = castle && point(castle.from);
       const rookTo = castle && point(castle.to);
-      const completed = await this.animate(move.captured ? 145 : 115, (progress) => {
-        const eased = 1 - (1 - progress) ** 2;
-        object.position.lerpVectors(from, to, dragged ? 1 : eased);
-        if (move.piece === "n") object.position.y += Math.sin(Math.PI * eased) * 0.23;
-        if (castle && rookFrom && rookTo) castle.rook.position.lerpVectors(rookFrom, rookTo, eased);
+      const direction = to.clone().sub(from).normalize();
+      const contact = enemy ? 0.43 : dragged ? 0.12 : 0.64;
+      const impactPoint = enemy ? point(capturedSquare).lerp(to, 0.35) : to;
+      let hit = false;
+      const completed = await this.animate(enemy ? 640 : dragged ? 160 : 360, (progress) => {
+        const travel = T.MathUtils.smoothstep(progress, 0.09, contact);
+        object.position.lerpVectors(from, to, dragged ? 1 : travel);
+        const arc = Math.sin(Math.PI * travel);
+        if (!dragged) object.position.y += arc * (move.piece === "n" ? 0.9 : 0.23);
+        object.rotation.y = !dragged && move.piece === "n" ? arc * 0.3 : 0;
+        const restStart = enemy ? 0.485 : contact;
+        const settle = T.MathUtils.clamp((progress - restStart) / (dragged ? 0.76 : 0.36), 0, 1);
+        const squash = progress < 0.09 ? -Math.sin(progress / 0.09 * Math.PI) * 0.12
+          : -Math.sin(settle * 2 * Math.PI) * (1 - settle) * 0.23;
+        const rest = object.userData.restScale!;
+        object.scale.set(rest.x * (1 - squash * 0.5), rest.y * (1 + squash), rest.z * (1 - squash * 0.5));
+        if (castle && rookFrom && rookTo) castle.rook.position.lerpVectors(rookFrom, rookTo, travel);
+        if (!hit && progress >= contact) {
+          hit = true;
+          impact();
+          this.burst(impactPoint, enemy ? 20 : 6, enemy ? direction : undefined);
+          if (enemy) this.shake();
+        }
+        if (enemy && progress >= contact) {
+          // A short stationary impact interval precedes the victim's tumble.
+          const flight = T.MathUtils.clamp((progress - 0.485) / 0.515, 0, 1);
+          enemy.position.copy(point(capturedSquare)).addScaledVector(direction, flight * 5.7);
+          enemy.position.y += Math.sin(Math.PI * flight) * 2.5 - flight * flight * 2.5;
+          enemy.rotation.set(flight * Math.PI * 3, flight * 4, flight * Math.PI * 2);
+        }
       });
       if (!completed) return;
-    }
+      if (!hit) impact();
+    } else impact();
     if (enemy) this.release(capturedSquare, enemy);
     if (castle) {
       this.meshes.delete(castle.from);
@@ -718,12 +961,24 @@ export class Stage {
     }
     this.meshes.delete(move.from);
     this.place(move.to, object);
-    impact();
-    this.renderer.shadowMap.needsUpdate = true;
-    this.needsRender = true;
+    this.invalidateShadows();
   }
 
-  async shift(event: Shift) {
+  async promote(square: Square) {
+    const piece = this.meshes.get(square);
+    if (!piece || this.motion.matches || document.hidden) return;
+    const rest = piece.userData.restScale!;
+    this.burst(point(square), 16);
+    const completed = await this.animate(280, (progress) => {
+      const lift = Math.sin(progress * Math.PI);
+      piece.position.y = boardHeight + lift * 0.32;
+      piece.scale.copy(rest).multiplyScalar(0.78 + progress * 0.22 + lift * 0.19);
+      this.invalidateShadows();
+    });
+    if (completed) this.place(square, piece);
+  }
+
+  async shift(event: Shift, onLand?: (pair: number) => void) {
     const motions: {
       object: PieceMesh;
       origin: Square;
@@ -772,76 +1027,279 @@ export class Stage {
     this.indicate(null);
     const applied = { event, pairs: new Set(motions.map(({ pair }) => pair)) };
     this.shifting = true;
-    this.showShift(event, true, applied.pairs);
+    this.showShift(event, false, applied.pairs);
     if (!reduced) {
       const paired = activePairs.length > 1;
       const localTime = (p: number, pair: number) =>
-        paired ? (p - pair * 0.11) / 0.89 : p;
-      const completed = await this.animate(paired ? 525 : 435, (p) => {
-        for (const { object, from, to, sideX, sideZ, height, pair } of motions) {
+        paired ? (p - pair * 0.20) / 0.80 : p;
+      const trailSegments = 24;
+      const trailSides = 5;
+      const indicesPerSegment = trailSides * 6;
+      const trails = motions.map(({ from, to, sideX, sideZ, height, pair }) => {
+        const points = Array.from({ length: trailSegments + 1 }, (_, index) => {
+          const t = index / trailSegments;
+          const arc = Math.sin(Math.PI * t);
+          return from.clone().lerp(to, t).add(new T.Vector3(sideX * arc, 0.38 + height * arc, sideZ * arc));
+        });
+        const geometry = new T.TubeGeometry(new T.CatmullRomCurve3(points), trailSegments, 0.046, trailSides, false);
+        geometry.setDrawRange(0, 0);
+        const trail = new T.Mesh(geometry, this.linkMaterials[pair]);
+        trail.renderOrder = 7;
+        this.shiftTrails.add(trail);
+        return trail;
+      });
+      const landed = new Set<number>();
+      const completed = await this.animate(paired ? 1280 : 1060, (p) => {
+        for (const [index, pair] of event.pairs.entries()) {
+          if (!applied.pairs.has(index)) continue;
+          const t = T.MathUtils.clamp(localTime(p, index), 0, 1);
+          for (const square of pair) this.elevateTile(square, Math.sin(t * Math.PI) * 0.10);
+          if (t >= 0.78 && !landed.has(index)) {
+            landed.add(index);
+            this.shake();
+            onLand?.(index);
+            for (const { pair: motionPair, from, to } of motions) {
+              if (motionPair === index) this.burst(to, 18, to.clone().sub(from).normalize());
+            }
+          }
+        }
+        for (const [index, { object, from, to, sideX, sideZ, height, pair }] of motions.entries()) {
           const t = localTime(p, pair);
-          const k = T.MathUtils.smoothstep(t, 0.16, 0.83);
+          const k = T.MathUtils.smoothstep(t, 0.22, 0.78);
           const arc = Math.sin(Math.PI * k);
           object.position.lerpVectors(from, to, k);
           object.position.x += sideX * arc;
           object.position.y += height * arc;
           object.position.z += sideZ * arc;
-          object.rotation.y = arc * 0.27;
+          object.rotation.y = arc * Math.PI * 0.65;
+          object.rotation.z = arc * 0.18;
+          object.scale.copy(object.userData.restScale!).multiplyScalar(1 + arc * 0.045);
+          const end = Math.floor(k * trailSegments);
+          const start = Math.max(0, end - 12 + Math.floor(T.MathUtils.smoothstep(t, 0.78, 0.97) * 12));
+          trails[index].geometry.setDrawRange(start * indicesPerSegment, (end - start) * indicesPerSegment);
         }
         for (const pair of activePairs) {
           const t = localTime(p, pair);
-          const grow = T.MathUtils.smoothstep(t, 0, 0.24);
-          const land = T.MathUtils.smoothstep(t, 0.69, 1);
+          const grow = T.MathUtils.smoothstep(t, 0, 0.22);
+          const land = T.MathUtils.smoothstep(t, 0.78, 1);
           const [first, second] = this.shiftEffects[pair];
           first.visible = second.visible = t > 0 && t < 1;
-          first.scale.setScalar(0.74 + 0.26 * grow + 0.12 * land);
-          second.scale.setScalar(0.74 + 0.26 * grow + 0.30 * land);
-          first.material.opacity = (0.67 + 0.25 * grow) * (1 - land);
+          first.scale.setScalar(0.58 + 0.42 * grow + 0.12 * land);
+          second.scale.setScalar(0.62 + 0.38 * grow + 0.53 * land);
+          first.rotation.z = t * 2.6;
+          second.rotation.z = -t * 2.6;
+          first.material.opacity = grow * (1 - T.MathUtils.smoothstep(t, 0.38, 0.89));
+          second.material.opacity = (0.48 * grow + 0.47 * Math.sin(Math.PI * land)) * (1 - land);
         }
       });
+      if (!completed) return;
+      this.clearShiftTrails();
       for (const pair of activePairs) {
         const [first, second] = this.shiftEffects[pair];
         first.visible = second.visible = false;
       }
-      if (!completed) return;
+    } else {
+      applied.pairs.forEach(pair => onLand?.(pair));
     }
     this.shifting = false;
+    this.resetTiles();
     for (const { origin } of motions) this.meshes.delete(origin);
     for (const { object, destination } of motions) this.place(destination, object);
     this.recentShift = applied;
-    this.renderer.shadowMap.needsUpdate = true;
-    this.needsRender = true;
+    this.invalidateShadows();
+  }
+
+  private clearShiftTrails() {
+    for (const trail of this.shiftTrails.children) (trail as T.Mesh).geometry.dispose();
+    this.shiftTrails.clear();
+  }
+
+  private elevateTile(square: Square, elevation: number) {
+    const x = alphabet.indexOf(square[0]);
+    const z = 8 - Number(square[1]);
+    this.tiles[(x + z) % 2].setMatrixAt(z * 4 + Math.floor(x / 2),
+      this.tileMatrix.makeTranslation(x - 3.5, -0.04 + elevation, z - 3.5));
+    this.tiles[(x + z) % 2].instanceMatrix.needsUpdate = true;
+  }
+
+  private resetTiles() {
+    for (const square of this.markers.keys()) this.elevateTile(square, 0);
+  }
+
+  private shake() {
+    if (this.cameraShake && !this.motion.matches) this.shakeUntil = performance.now() + 160;
+  }
+
+  private burst(position: T.Vector3, count: number, direction?: T.Vector3) {
+    if (this.motion.matches) return;
+    const born = performance.now();
+    const ring = new T.Mesh(this.captureGeometry, this.effectMaterials[0]);
+    ring.position.copy(position).setY(0.035);
+    ring.rotation.x = -Math.PI / 2;
+    ring.userData.shockwave = true;
+    this.effects.add(ring);
+    this.particles.push({ object: ring, velocity: new T.Vector3(), born, life: 300 });
+    for (let i = 0; i < count; i++) {
+      const angle = i * 2.399;
+      const geometry = direction ? (i % 3 === 0 ? this.sparkGeometry : this.chipGeometry) : this.particleGeometry;
+      const object = new T.Mesh(geometry, this.effectMaterials[i % this.effectMaterials.length]);
+      object.position.copy(position).y += direction ? 0.37 : 0.15;
+      object.rotation.set(angle * 0.13, angle * 0.7, angle);
+      const speed = (direction ? 1.45 : 0.75) * (1 + i % 3);
+      const velocity = new T.Vector3(Math.cos(angle) * speed, 1.5 + i % 4 * 0.4, Math.sin(angle) * speed);
+      if (direction) velocity.addScaledVector(direction, 1.1);
+      this.effects.add(object);
+      this.particles.push({ object, born, life: 350 + i % 4 * 70, velocity });
+    }
+  }
+
+  private get viewCamera() { return this.overhead ? this.rig.flatCamera : this.rig.camera; }
+
+  private placeSeats() {
+    const camera = this.viewCamera;
+    const width = this.viewportHeight * this.rig.camera.aspect;
+    const tableTop = tabletopSize.y + tabletopSize.height / 2;
+    for (const side of ["w", "b"] as const) {
+      const seat = this.seats[side];
+      const near = side === this.side;
+      const worldX = near ? 0 : 4.3 * flip(side);
+      const z = flip(side) * (near ? 4.7 : 4.8);
+      const projected = this.seatPoint.set(worldX, tableTop, z).project(camera);
+      const center = projected.x;
+      const x = (1 + center) * 50;
+      const y = (1 - projected.y) * 50;
+      const radius = this.seatPoint.set(worldX + 0.42, tableTop, z).project(camera).x;
+      const size = Math.max(26, Math.min(76, Math.abs(radius - center) * width));
+      seat.style.setProperty("--seat-size", Math.round(size) + "px");
+      seat.style.left = x.toFixed(2) + "%";
+      seat.style.top = y.toFixed(2) + "%";
+    }
+  }
+
+  private updateContactShadows() {
+    let index = 0;
+    for (const piece of this.meshes.values()) {
+      const { x, y, z } = piece.position;
+      if (Math.abs(x) >= 4 || Math.abs(z) >= 4 || y < -0.07) continue;
+      const size = 0.96 * piece.scale.x + Math.max(0, y - boardHeight) * 0.1;
+      this.contactMatrix.makeScale(size, 1, size).setPosition(x, 0.009, z);
+      this.contactShadows.setMatrixAt(index++, this.contactMatrix);
+    }
+    this.contactShadows.count = index;
+    this.contactShadows.instanceMatrix.needsUpdate = true;
   }
 
   private tick(ms: number) {
+    if (document.hidden) return;
+    if (this.rig.shot && !this.needsRender && ms - this.lastTick < 32) return;
+    const dt = Math.min(0.05, (ms - (this.lastTick || ms)) / 1000);
+    this.lastTick = ms;
+    const reduced = this.motion.matches;
+    if (reduced && !this.needsRender && !this.arrival && !this.tween && !this.particles.length) return;
+    this.rig.place(ms, reduced, {
+      height: this.viewportHeight, hudTop: this.hudTop, side: this.side,
+      overhead: this.overhead, presentation: this.presentation, shakeUntil: this.shakeUntil,
+      facingAngle: this.facingAngle,
+    });
+    if (!this.presentation) this.placeSeats();
+    this.motes.visible = Boolean(this.rig.shot) && !reduced;
+    this.motes.rotation.y = ms * 0.000025;
+    this.motes.position.y = Math.sin(ms * 0.0004) * 0.12;
+    this.canvas.dataset.cameraPosition = JSON.stringify(this.viewCamera.position.toArray());
+    this.canvas.dataset.presenting = String(this.presentation);
+    this.canvas.toggleAttribute("data-cinematic", Boolean(this.rig.shot));
+    this.canvas.dataset.cameraTarget = JSON.stringify(this.rig.cameraTarget.toArray());
+    this.canvas.dataset.cameraFov = String(this.rig.camera.fov);
+    if (this.overhead) {
+      this.canvas.dataset.flatHeight = String(this.rig.flatCamera.top);
+      this.canvas.dataset.flatSide = this.side;
+    } else {
+      delete this.canvas.dataset.flatHeight;
+    }
+    const checkPhase = reduced ? 0.3 : Math.max(0, ms - this.checkStarted) % 1150 / 1150;
     if (this.arrival) {
-      const progress = T.MathUtils.clamp(
-        (ms - this.arrival.start) / this.arrival.duration,
-        0,
-        1,
-      );
+      const progress = T.MathUtils.clamp((ms - this.arrival.start) / this.arrival.duration, 0, 1);
       this.arrival.render(progress);
-      this.renderer.shadowMap.needsUpdate = true;
-      this.needsRender = true;
+      this.invalidateShadows();
       if (progress === 1) this.arrival = undefined;
     }
     if (this.tween) {
-      const progress = T.MathUtils.clamp(
-        (ms - this.tween.start) / this.tween.duration,
-        0,
-        1,
-      );
+      const progress = T.MathUtils.clamp((ms - this.tween.start) / this.tween.duration, 0, 1);
       this.tween.render(progress);
-      this.renderer.shadowMap.needsUpdate = true;
-      this.needsRender = true;
+      this.invalidateShadows();
       if (progress === 1) {
         const { end } = this.tween;
         this.tween = undefined;
         end(true);
       }
+    } else if (!this.arrival) {
+      const drag = this.drag?.active ? this.drag : undefined;
+      if (drag) {
+        const { rotation } = drag.piece;
+        const steering = !reduced && ms - drag.movedAt < 70 ? 1 : 0;
+        const x = drag.tilt.x * steering;
+        const z = drag.tilt.y * steering;
+        if (Math.abs(rotation.x - x) > 0.001 || Math.abs(rotation.z - z) > 0.001) {
+          const blend = reduced ? 1 : 1 - Math.exp(-dt * 26);
+          rotation.set(T.MathUtils.lerp(rotation.x, x, blend), 0, T.MathUtils.lerp(rotation.z, z, blend));
+          this.invalidateShadows();
+        }
+      }
+      const shakeTime = Math.min(1, checkPhase * 3.6);
+      const kingTilt = reduced ? 0 : 0.07 * Math.sin(shakeTime * 4 * Math.PI) * (1 - shakeTime);
+      for (const [square, object] of this.meshes) {
+        if (drag?.piece === object) continue;
+        const lifted = square === this.selected || (square === this.hovered && object.userData.color === this.activeSide);
+        const y = boardHeight + (lifted ? 0.11 + (reduced ? 0 : Math.sin(ms * 0.004) * 0.025) : 0);
+        if (Math.abs(object.position.y - y) > 0.001) {
+          object.position.y = reduced ? y : T.MathUtils.lerp(object.position.y, y, 1 - Math.exp(-dt * 15));
+        }
+        // Keep contact shadows cached while idle poses and the check warning animate.
+        const tilt = square === this.checked ? kingTilt : 0;
+        if (object.rotation.z !== tilt) object.rotation.z = tilt;
+      }
     }
-    if (!this.needsRender) return;
-    this.renderer.render(this.scene, this.camera);
+    const pulse = reduced ? 0.5 : 0.5 + Math.sin(ms * 0.004) * 0.5;
+    this.shiftMarkers.forEach(material => { material.opacity = 0.22 + pulse * 0.2; });
+    if (this.checked) {
+      this.checkMarker.opacity = 0.36 + Math.sin(Math.PI * checkPhase) * 0.28;
+      this.checkRipple.scale.setScalar(0.78 + checkPhase * 0.5);
+      this.checkRipple.material.opacity = 0.92 * (1 - checkPhase);
+    }
+    this.linkMaterials.forEach(material => { material.opacity = 0.65 + pulse * 0.35; });
+    this.hoverMarker.scale.setScalar(1 + pulse * 0.06);
+    this.selectionRing.material.opacity = 0.62 + pulse * 0.26;
+    this.particles = this.particles.filter(particle => {
+      const age = Math.max(0, ms - particle.born);
+      if (age >= particle.life) {
+        this.effects.remove(particle.object);
+        return false;
+      }
+      if (particle.object.userData.shockwave) {
+        const growth = age / particle.life;
+        particle.object.scale.set(0.5 + growth * 2.5, 0.5 + growth * 2.5, 1);
+        particle.object.visible = growth < 0.8;
+      } else {
+        particle.velocity.y -= dt * 5;
+        particle.object.position.addScaledVector(particle.velocity, dt);
+        particle.object.rotation.x += dt * 6;
+        particle.object.rotation.z += dt * 4;
+        particle.object.scale.setScalar(1 - age / particle.life);
+      }
+      return true;
+    });
+    if (this.overhead) {
+      for (const piece of this.meshes.values()) {
+        const symbol = piece.userData.symbol!;
+        const { x, y, z } = piece.position;
+        symbol.position.set(x, 2 + Math.max(0, y), z);
+        symbol.scale.setScalar(0.94 * piece.scale.x);
+        symbol.visible = Math.abs(x) < 4.6 && Math.abs(z) < 4.7;
+      }
+    } else if (this.needsRender) {
+      this.updateContactShadows();
+    }
+    this.renderer.render(this.scene, this.viewCamera);
     this.needsRender = false;
   }
 }

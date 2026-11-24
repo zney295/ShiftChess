@@ -1,0 +1,15 @@
+{
+  "id": "./",
+  "name": "ShiftChess",
+  "short_name": "ShiftChess",
+  "description": "Play a 3D chess variant where pieces shift across the board.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#101525",
+  "theme_color": "#101525",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

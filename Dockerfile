@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
+ARG SHIFTCHESS_SITE_URL
 RUN npm run build
 
 FROM node:24-alpine

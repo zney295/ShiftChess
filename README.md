@@ -10,6 +10,12 @@ npm start
 
 Mở `http://127.0.0.1:48700`. Backend phục vụ cả game và WebSocket. Khi phát triển giao diện dùng thêm `npm run dev`.
 
+Ở chế độ bot, chọn Trắng, Đen hoặc ngẫu nhiên. Mục lịch sử có nút **Hoàn nước** cho ván local và ván bot. Khi đấu bot, thao tác này đưa bàn cờ về lượt trước của người chơi.
+
+Mỗi lượt có 30 giây. Hết giờ lượt, game tự chọn một nước hợp lệ rồi chuyển lượt. Trong ván online, mỗi bên còn có 5 phút tổng và sẽ thua nếu dùng hết. Dùng mã phòng và nút **Xem trận** để theo dõi. Trong ván, nhấn Tab tới bàn cờ, dùng phím mũi tên để chọn ô, rồi nhấn Enter để chọn quân hoặc đi nước. Game tự chuyển sang bàn cờ 2D nếu WebGL không khả dụng.
+
+Bản production hỗ trợ cài như ứng dụng web và chơi local hoặc với bot offline sau lần tải đầu tiên trên HTTPS hoặc localhost. Khi build cho hosting riêng, đặt `SHIFTCHESS_SITE_URL` thành URL công khai của game để bản xem trước chia sẻ có URL ảnh tuyệt đối.
+
 ## Luồng chơi
 
 - Menu → chọn chế độ → nhận map và SHIFT chung → xác nhận → chơi → kết quả/tái đấu.

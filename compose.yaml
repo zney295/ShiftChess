@@ -1,6 +1,9 @@
 services:
   game:
-    build: .
+    build:
+      context: .
+      args:
+        SHIFTCHESS_SITE_URL: https://${DOMAIN:?Set DOMAIN to your hostname}/
     restart: unless-stopped
     init: true
     environment:
@@ -10,6 +13,7 @@ services:
       DATABASE_PATH: /app/data/shiftchess.sqlite
       ALLOWED_ORIGINS: https://${DOMAIN:?Set DOMAIN to your hostname}${EXTRA_ORIGINS:-}
       TRUST_PROXY: 1
+      MAX_ROOMS: ${MAX_ROOMS:-200}
     volumes:
       - game-data:/app/data
     expose:
