@@ -144,9 +144,37 @@ export class GameAudio {
     this.mallet(pair ? 698.46 : 523.25, 0.12, 0.025);
   }
 
+  clash() {
+    this.duck(0.85);
+    this.tone(120, 36, 0.38, 0.26, 0, "sine");
+    this.burst(0.08, 1950, 0.28, 0, 1.4);
+    this.burst(0.18, 860, 0.19, 0.03, 4);
+    [330, 466.16, 622.25].forEach((note, i) =>
+      this.tone(note, note * 0.72, 0.24, 0.075, i * 0.022, "triangle"),
+    );
+  }
+
+  morph() {
+    this.duck(0.5);
+    [523.25, 659.25, 783.99, 1046.5].forEach((note, i) =>
+      this.mallet(note, 0.085, i * 0.055),
+    );
+  }
+
   check() {
-    this.duck(0.55);
-    [440, 466.16].forEach((note, i) => this.mallet(note, 0.12, i * 0.14));
+    // Give check audio clear priority when overlapping move or SHIFT tails
+    this.stopEffects();
+    this.duck(0.85);
+    [587.33, 622.25, 880].forEach((note, i) =>
+      this.mallet(note, i === 2 ? 0.14 : 0.125, i * 0.085),
+    );
+  }
+
+  matchStart() {
+    this.duck(0.6);
+    [392, 493.88, 587.33].forEach((note, i) =>
+      this.mallet(note, 0.08, i * 0.08),
+    );
   }
 
   victory() {

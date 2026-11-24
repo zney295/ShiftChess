@@ -58,10 +58,10 @@ export class BoardGrid {
   }
 
   draw(chess: Chess, options: {
-    side: Color; playable: boolean; selected?: Square; lastMove?: Move;
+    side: Color; activeSide?: Color; playable: boolean; selected?: Square; lastMove?: Move;
     targets: Square[]; hints: boolean; check?: Square; shifts?: readonly (readonly Square[])[];
   }, t: Translate) {
-    const { side, playable, selected, targets, hints, lastMove, check, shifts } = options;
+    const { side, activeSide = chess.turn(), playable, selected, targets, hints, lastMove, check, shifts } = options;
     if (this.side !== side) {
       this.side = side;
       this.order = [...this.cells.keys()];
@@ -87,7 +87,7 @@ export class BoardGrid {
       if (cell.textContent !== next) cell.textContent = next;
       cell.setAttribute("aria-label", label.join(", "));
       cell.setAttribute("aria-selected", String(square === selected));
-      cell.setAttribute("aria-disabled", String(!playable || (!highlighted && piece?.color !== chess.turn())));
+      cell.setAttribute("aria-disabled", String(!playable || (!highlighted && piece?.color !== activeSide)));
       cell.toggleAttribute("data-target", highlighted);
       cell.toggleAttribute("data-last", lastMove?.from === square || lastMove?.to === square);
       cell.toggleAttribute("data-check", square === check);

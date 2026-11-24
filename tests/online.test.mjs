@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { WebSocket } from "ws";
 import { createGameServer } from "../server/index.mjs";
+import { command } from "../server/engine.mjs";
+import { Match } from "../src/rules.ts";
+import { newClock, resumeClock } from "../server/clock.mjs";
 import { mkdtemp, readdir, unlink, rmdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -145,7 +148,7 @@ test("private room shares rules, rejects wrong turns, resumes and rematches", as
       assert.equal(x.room.state.fen, y.room.state.fen);
       assert.deepEqual(x.room.state.pending, y.room.state.pending);
     }
-    assert.ok(server.rooms.get(room.code).match.pending);
+    assert.equal(server.rooms.get(room.code).match.plies, 8);
     a.socket.close();
     await new Promise((r) => a.socket.once("close", r));
     await b.next((m) => m.room?.players.some((p) => !p.connected));
@@ -316,4 +319,40 @@ test("upgrade checks origin; payload and request limits close abusive sockets", 
     if (previous === undefined) delete process.env.ALLOWED_ORIGINS;
     else process.env.ALLOWED_ORIGINS = previous;
   }
+});
+
+test("online engine locks both secret moves on simultaneous ply 18 and resolves clash + SHIFT", () => {
+  const match = new Match("periodic", "swap");
+  const opening = "e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 d6 c3 O-O h3 Nb8".split(" ");
+  for (const san of opening) {
+    const m = match.chess.moves({ verbose: true }).find((c) => c.san === san);
+    match.play(m.from, m.to, m.promotion);
+    match.settle();
+  }
+  assert.equal(match.isSimultaneousTurn(), true);
+  const pW = { id: "w", name: "White", color: "w", socket: {} };
+  const pB = { id: "b", name: "Black", color: "b", socket: {} };
+  const room = {
+    code: "SIM123",
+    phase: "playing",
+    players: [pW, pB],
+    match,
+    revision: 18,
+    clock: newClock(300000),
+  };
+  resumeClock(room, Date.now());
+  // Black submits first during simultaneous turn!
+  const first = command(room, pB, { type: "move", from: "c7", to: "c5", revision: 18 });
+  assert.equal(first.simultaneous, undefined);
+  assert.equal(room.revision, 18);
+  assert.ok(room.pendingMoves.b);
+  // Black cannot submit twice
+  assert.throws(() => command(room, pB, { type: "move", from: "c7", to: "c6", revision: 18 }));
+  // White submits second -> resolves simultaneously and executes ply-20 SHIFT!
+  const second = command(room, pW, { type: "move", from: "d2", to: "d4", revision: 18 });
+  assert.ok(second.simultaneous);
+  assert.equal(room.revision, 19);
+  assert.equal(room.match.plies, 20);
+  assert.equal(room.pendingMoves, undefined);
+  assert.equal(second.settlement.due?.at, 20);
 });

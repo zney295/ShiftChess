@@ -64,7 +64,8 @@ export class StageCamera {
       );
       const halfWidth = halfHeight * aspect;
       Object.assign(this.flatCamera, { left: -halfWidth, right: halfWidth, top: halfHeight, bottom: -halfHeight });
-      this.cameraTarget.set(0, 0, -cosA * halfHeight * (topInset - bottomInset) / viewport);
+      const shiftOffset = halfHeight * (topInset - bottomInset) / viewport;
+      this.cameraTarget.set(-sinA * shiftOffset, 0, -cosA * shiftOffset);
       this.flatCamera.position.copy(this.cameraTarget).setY(20);
       this.flatCamera.up.set(-sinA, 0, -cosA);
       this.flatCamera.lookAt(this.cameraTarget);
@@ -119,7 +120,7 @@ export class StageCamera {
     distance = Math.max(distance, (lowerLift - upperLift) / ((top - bottom) * tangent));
     distance *= 1.07;
     const lift = (lowerLift + upperLift - distance * (top + bottom) * tangent) / 2;
-    this.cameraTarget.set(0, 0.08 + lift * depth, -cosA * lift * height);
+    this.cameraTarget.set(-sinA * lift * height, 0.08 + lift * depth, -cosA * lift * height);
     this.camera.position.set(sinA * distance * depth, distance * height, cosA * distance * depth).add(this.cameraTarget);
     this.settleCamera(ms, layout.shakeUntil);
   }

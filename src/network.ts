@@ -1,5 +1,5 @@
-import type { Color, Move } from "chess.js";
-import type { Match, MatchState } from "./rules";
+import type { Color, Move, Square } from "chess.js";
+import type { Match, MatchState, MoveInput } from "./rules";
 import type { CopyKey } from "./copy";
 
 export type Clock = {
@@ -12,6 +12,7 @@ export type Room = {
   quick: boolean;
   setting: "park" | "library";
   state?: MatchState;
+  simultaneous?: { w: boolean; b: boolean };
   revision: number;
   disconnectedUntil?: number;
   clock?: Clock;
@@ -26,10 +27,19 @@ export type Room = {
     rematch: boolean;
   }[];
 };
+export type SimultaneousPacket = {
+  white: MoveInput;
+  black: MoveInput;
+  clash: boolean;
+  clashSquare?: Square;
+  clashMidpoint?: [Square, Square];
+  neutralizedCheck?: boolean;
+};
 type RoomPacket = {
   type: "room";
   room: Room;
   move?: Pick<Move, "from" | "to" | "promotion">;
+  simultaneous?: SimultaneousPacket;
   settlement?: ReturnType<Match["settle"]>;
   automatic?: boolean;
 };

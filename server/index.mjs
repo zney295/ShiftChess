@@ -168,6 +168,12 @@ export function createGameServer({
     })),
     setting: room.setting,
     state: room.match?.snapshot(),
+    simultaneous: room.match?.isSimultaneousTurn()
+      ? {
+          w: Boolean(room.pendingMoves?.w),
+          b: Boolean(room.pendingMoves?.b),
+        }
+      : undefined,
     revision: room.revision,
     result: room.result,
     disconnectedUntil: room.disconnectedUntil,

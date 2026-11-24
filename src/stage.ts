@@ -41,9 +41,9 @@ export class Stage {
   private readonly renderer: T.WebGLRenderer;
   private readonly scene = new T.Scene();
   private readonly rig = new StageCamera();
-  private readonly light = new T.DirectionalLight("#fff0db", 2.35);
-  private readonly sky = new T.HemisphereLight("#f0f4ff", "#a38a70", 0.85);
-  private readonly rim = new T.DirectionalLight("#d9e8ff", 1.35);
+  private readonly light = new T.DirectionalLight("#fff5e6", 2.45);
+  private readonly sky = new T.HemisphereLight("#ffffff", "#d8cab5", 1.05);
+  private readonly rim = new T.DirectionalLight("#d6ecff", 1.45);
   private readonly meshes = new Map<Square, PieceMesh>();
   private readonly pieceLayer = new T.Group();
   private readonly flatPieces = new T.Group();
@@ -60,9 +60,9 @@ export class Stage {
   private readonly hoverMarker = new T.Mesh(
     new T.RingGeometry(0.32, 0.43, 40),
     new T.MeshBasicMaterial({
-      color: "#54ffd5",
+      color: "#f4f1ea",
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.82,
       depthWrite: false,
       side: T.DoubleSide,
     }),
@@ -70,7 +70,7 @@ export class Stage {
   private readonly dots = new T.Group();
   private readonly selectionRing = new T.Mesh(
     new T.RingGeometry(0.648, 0.678, 4, 1, Math.PI / 4),
-    new T.MeshBasicMaterial({ color: "#ffdc75", transparent: true, opacity: 0.95,
+    new T.MeshBasicMaterial({ color: "#eb4d35", transparent: true, opacity: 0.96,
       depthWrite: false, side: T.DoubleSide, toneMapped: false }),
   );
   private readonly legalDots = new Map<Square, T.Mesh>();
@@ -85,7 +85,7 @@ export class Stage {
     side: T.DoubleSide,
   });
   private readonly captureMaterial = new T.MeshBasicMaterial({
-    color: "#ff745f", transparent: true, opacity: 0.98, toneMapped: false, depthWrite: false,
+    color: "#ff5a43", transparent: true, opacity: 0.98, toneMapped: false, depthWrite: false,
   });
   private readonly markers = new Map<Square, T.Mesh>();
   private readonly models = new Map<
@@ -125,44 +125,51 @@ export class Stage {
   private readonly particleGeometry = new T.IcosahedronGeometry(0.055, 0);
   private readonly sparkGeometry = sparkGeometry();
   private readonly chipGeometry = new T.TetrahedronGeometry(0.088);
-  private readonly effectMaterials = ["#ffd468", "#60efd1", "#ff8c79", "#cba8ff"].map(color =>
+  private readonly effectMaterials = ["#eb4d35", "#109b7e", "#f5a623", "#ffffff"].map(color =>
     new T.MeshBasicMaterial({ color, side: T.DoubleSide, depthWrite: false, toneMapped: false }));
   private particles: { object: T.Mesh; velocity: T.Vector3; born: number; life: number }[] = [];
   private shakeUntil = 0;
   private lastTick = 0;
   private readonly motes = new T.Points(
     new T.BufferGeometry().setAttribute("position", new T.Float32BufferAttribute(
-      Array.from({ length: 24 }, (_, index) => [
-        Math.sin(index * 2.399) * (4.6 + index % 3),
-        0.4 + index % 7 * 0.35,
-        Math.cos(index * 2.399) * (4.6 + index % 3),
+      Array.from({ length: 36 }, (_, index) => [
+        Math.sin(index * 2.399) * (4.1 + index % 4 * 0.85),
+        0.5 + index % 7 * 0.42,
+        Math.cos(index * 2.399) * (4.1 + index % 4 * 0.85),
       ]).flat(), 3)),
-    new T.PointsMaterial({ color: "#fff1bf", size: 0.04, transparent: true, opacity: 0.55, depthWrite: false }),
+    new T.PointsMaterial({ color: "#fff8db", size: 0.055, transparent: true, opacity: 0.72, depthWrite: false }),
   );
   private readonly markGeometry = new T.PlaneGeometry(1, 1);
   private readonly moveMarker = new T.MeshBasicMaterial({
-    color: "#e9c251",
+    color: "#f2ad2e",
     transparent: true,
-    opacity: 0.47,
+    opacity: 0.40,
     depthWrite: false,
     side: T.DoubleSide,
   });
   private readonly shiftMarkers = [
     new T.MeshBasicMaterial({
-      color: "#47c8ff",
+      color: "#eb4d35",
       transparent: true,
-      opacity: 0.24,
+      opacity: 0.34,
       depthWrite: false,
       side: T.DoubleSide,
     }),
     new T.MeshBasicMaterial({
-      color: "#b78cff",
+      color: "#109b7e",
       transparent: true,
-      opacity: 0.24,
+      opacity: 0.34,
       depthWrite: false,
       side: T.DoubleSide,
     }),
   ];
+  private readonly zoneMarker = new T.MeshBasicMaterial({
+    color: "#f2ad2e",
+    transparent: true,
+    opacity: 0.22,
+    depthWrite: false,
+    side: T.DoubleSide,
+  });
   private readonly checkMarker = new T.MeshBasicMaterial({
     color: "#e44444",
     transparent: true,
@@ -211,7 +218,7 @@ export class Stage {
     new T.MeshStandardMaterial({ roughness: 0.6 }),
   ];
   private readonly badgeGeometry = new T.PlaneGeometry(1, 1);
-  private readonly pairBadges = [this.pairBadge("A", "#167ab0"), this.pairBadge("B", "#7441bc")];
+  private readonly pairBadges = [this.pairBadge("A", "#eb4d35"), this.pairBadge("B", "#109b7e")];
   private arrival?: Animation;
   private tween?: Tween;
   private side: Color = "w";
@@ -235,11 +242,11 @@ export class Stage {
     this.renderer.shadowMap.type = T.PCFShadowMap;
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = T.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.02;
+    this.renderer.toneMappingExposure = 1.06;
     const studio = new RoomEnvironment();
     const reflections = new T.PMREMGenerator(this.renderer);
     this.scene.environment = reflections.fromScene(studio, 0.06).texture;
-    this.scene.environmentIntensity = 0.36;
+    this.scene.environmentIntensity = 0.44;
     reflections.dispose();
     studio.dispose();
     this.canvas = this.renderer.domElement;
@@ -326,7 +333,7 @@ export class Stage {
     this.canvas.addEventListener("lostpointercapture", cancelPointer);
     this.canvas.addEventListener("pointerleave", () => this.clearHover());
     const renderSize = new T.Vector2();
-    const resize = () => {
+    const layout = () => {
       const w = host.clientWidth;
       const h = host.clientHeight;
       if (!w || !h) return;
@@ -337,18 +344,13 @@ export class Stage {
         this.rig.camera.updateProjectionMatrix();
       }
       this.viewportHeight = h;
+      // Use a stable viewport-derived top inset so dynamic HUD notifications
+      // or 2-row SHIFT lock badges never cause the 3D camera to zoom in/out.
+      this.hudTop = h <= 540 && w >= 560 ? 48 : w <= 860 ? 92 : 76;
       this.needsRender = true;
-    };
-    const header = host.parentElement?.querySelector(".player-hud");
-    const layout = () => {
-      resize();
-      const viewport = host.getBoundingClientRect();
-      const top = header?.getBoundingClientRect();
-      this.hudTop = top?.height ? top.bottom - viewport.top : 0;
     };
     const observer = new ResizeObserver(layout);
     observer.observe(host);
-    if (header) observer.observe(header);
     this.motion.addEventListener("change", () => { this.needsRender = true; });
     layout();
     this.setSetting("park");
@@ -525,18 +527,30 @@ export class Stage {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 128;
     const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = color;
-    ctx.beginPath();
+    // Carved antique brass/verdigris corner-inlay frame on the square surface
     ctx.strokeStyle = color;
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 6;
     ctx.strokeRect(5, 5, 118, 118);
-    ctx.roundRect(86, 0, 42, 42, [0, 0, 0, 8]);
+    ctx.lineWidth = 2.5;
+    ctx.globalAlpha = 0.55;
+    ctx.strokeRect(13, 13, 102, 102);
+    ctx.globalAlpha = 1;
+    // Corner diamond studs
+    ctx.fillStyle = color;
+    for (const [cx, cy] of [[14, 14], [14, 114], [114, 114]] as const) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Crisp monogram corner tab
+    ctx.beginPath();
+    ctx.roundRect(84, 0, 44, 44, [0, 0, 0, 10]);
     ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 32px system-ui";
+    ctx.fillStyle = "#f4f1ea";
+    ctx.font = "700 30px Inter, system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(letter, 107, 21);
+    ctx.fillText(letter, 106, 23);
     const map = new T.CanvasTexture(canvas);
     map.colorSpace = T.SRGBColorSpace;
     return new T.MeshBasicMaterial({
@@ -569,8 +583,8 @@ export class Stage {
     this.updateScenery();
     this.scene.add(this.room);
     const [light, dark] = setting === "park"
-      ? ["#dfd8c5", "#556780"]
-      : ["#e0c7a2", "#83604c"];
+      ? ["#f0ebe0", "#5f81a0"]
+      : ["#f3eadc", "#74665c"];
     this.tileMaterials[0].color.set(light);
     this.tileMaterials[1].color.set(dark);
     this.invalidateShadows();
@@ -578,6 +592,7 @@ export class Stage {
 
   setPresentation(enabled: boolean) {
     this.presentation = enabled;
+    if (!enabled) this.rig.setShot();
     this.updateScenery();
     if (!enabled && this.rig.camera.view?.enabled) this.rig.camera.clearViewOffset();
     this.setInteraction(!enabled, this.activeSide);
@@ -587,7 +602,7 @@ export class Stage {
   private updateScenery() {
     if (this.scenery) this.scenery.visible = !this.presentation;
     this.scene.background = this.presentation ? null
-      : new T.Color(this.setting === "park" ? "#344650" : "#2c2c40");
+      : new T.Color(this.setting === "park" ? "#b9d2e4" : "#d5cab8");
   }
 
   suspend() {
@@ -599,7 +614,7 @@ export class Stage {
 
   setShot(shot?: CameraShot) {
     this.rig.setShot(shot);
-    this.sky.intensity = shot ? 0.38 : 0.85;
+    this.sky.intensity = shot ? 0.82 : 1.05;
     this.invalidateShadows();
   }
 
@@ -713,6 +728,7 @@ export class Stage {
     checked?: Square,
     lastMove?: Move,
     showRecent = false,
+    zoneSquares: Square[] = [],
   ) {
     if (this.shifting) return;
     this.selected = chosen;
@@ -726,6 +742,7 @@ export class Stage {
     const displayed = shift ?? recent?.event;
     const pairs = shift ? undefined : recent?.pairs;
     if (!showRecent) this.recentShift = undefined;
+    const zoneSet = new Set(displayed ? [] : zoneSquares);
     this.legalTargets.clear();
     for (const dot of this.legalDots.values()) dot.visible = false;
     for (const square of legal) {
@@ -749,8 +766,10 @@ export class Stage {
         displayed?.pairs.findIndex(
           (pair, index) => (!pairs || pairs.has(index)) && pair.includes(square),
         ) ?? -1;
+      const inZone = zoneSet.has(square);
       marker.visible =
         index >= 0 ||
+        inZone ||
         (square !== chosen && (square === lastMove?.from || square === lastMove?.to)) ||
         square === checked;
       marker.material =
@@ -758,7 +777,11 @@ export class Stage {
           ? this.checkMarker
           : index >= 0
             ? this.shiftMarkers[index]
-            : this.moveMarker;
+            : inZone
+              ? this.zoneMarker
+              : this.moveMarker;
+      // Signature ShiftChess surface detail: affected pending SHIFT tiles physically rise slightly
+      this.elevateTile(square, index >= 0 && Boolean(shift) ? 0.018 : 0);
     }
     this.needsRender = true;
     this.showShift(displayed, Boolean(shift), pairs);
@@ -978,6 +1001,119 @@ export class Stage {
     if (completed) this.place(square, piece);
   }
 
+  async morphAt(squares: Square[]) {
+    if (!squares.length || this.motion.matches || document.hidden) return;
+    const pieces = squares
+      .map((square) => ({ square, piece: this.meshes.get(square) }))
+      .filter((entry): entry is { square: Square; piece: PieceMesh } => Boolean(entry.piece));
+    if (!pieces.length) return;
+    for (const { square } of pieces) this.burst(point(square), 18);
+    const completed = await this.animate(360, (progress) => {
+      const lift = Math.sin(progress * Math.PI);
+      for (const { piece } of pieces) {
+        const rest = piece.userData.restScale!;
+        piece.position.y = boardHeight + lift * 0.38;
+        piece.rotation.y = lift * Math.PI;
+        piece.scale.copy(rest).multiplyScalar(0.72 + progress * 0.28 + lift * 0.24);
+      }
+      this.invalidateShadows();
+    });
+    if (completed) {
+      for (const { square, piece } of pieces) this.place(square, piece);
+    }
+  }
+
+  async moveSimultaneous(
+    whiteMove: Move,
+    blackMove: Move,
+    clash: boolean,
+    clashSquare: Square | undefined,
+    clashMidpoint: [Square, Square] | undefined,
+    onImpact: () => void,
+  ) {
+    this.finishArrival();
+    const wObj = this.meshes.get(whiteMove.from);
+    const bObj = this.meshes.get(blackMove.from);
+    const wFrom = point(whiteMove.from);
+    const wTo = point(whiteMove.to);
+    const bFrom = point(blackMove.from);
+    const bTo = point(blackMove.to);
+    const impactPoint = clash
+      ? clashSquare
+        ? point(clashSquare)
+        : clashMidpoint
+          ? point(clashMidpoint[0]).lerp(point(clashMidpoint[1]), 0.5)
+          : wTo.clone().lerp(bTo, 0.5)
+      : wTo.clone();
+
+    if (!this.motion.matches && !document.hidden && (wObj || bObj)) {
+      const wDir = impactPoint.clone().sub(wFrom).normalize();
+      const bDir = impactPoint.clone().sub(bFrom).normalize();
+      if (wDir.lengthSq() < 0.001) wDir.set(1, 0, 0);
+      if (bDir.lengthSq() < 0.001) bDir.set(-1, 0, 0);
+      const wEject = wDir.clone().negate().add(new T.Vector3(0.4, 0, -0.35)).normalize();
+      const bEject = bDir.clone().negate().add(new T.Vector3(-0.4, 0, 0.35)).normalize();
+      const contact = clash ? 0.44 : 0.72;
+      let hit = false;
+      const completed = await this.animate(clash ? 760 : 420, (progress) => {
+        if (clash) {
+          const rush = T.MathUtils.smoothstep(progress, 0.06, contact);
+          if (progress < contact) {
+            if (wObj) {
+              wObj.position.lerpVectors(wFrom, impactPoint, rush);
+              wObj.position.y += Math.sin(Math.PI * rush) * (whiteMove.piece === "n" ? 0.75 : 0.22);
+            }
+            if (bObj) {
+              bObj.position.lerpVectors(bFrom, impactPoint, rush);
+              bObj.position.y += Math.sin(Math.PI * rush) * (blackMove.piece === "n" ? 0.75 : 0.22);
+            }
+          } else {
+            if (!hit) {
+              hit = true;
+              onImpact();
+              this.shake();
+              this.burst(impactPoint, 24, wEject);
+              this.burst(impactPoint, 20, bEject);
+            }
+            const flight = T.MathUtils.clamp((progress - 0.5) / 0.5, 0, 1);
+            if (wObj) {
+              wObj.position.copy(impactPoint).addScaledVector(wEject, flight * 6.2);
+              wObj.position.y += Math.sin(Math.PI * flight) * 2.8 - flight * flight * 2.6;
+              wObj.rotation.set(flight * Math.PI * 3.2, flight * 4.5, flight * Math.PI * 2.2);
+            }
+            if (bObj) {
+              bObj.position.copy(impactPoint).addScaledVector(bEject, flight * 6.2);
+              bObj.position.y += Math.sin(Math.PI * flight) * 2.8 - flight * flight * 2.6;
+              bObj.rotation.set(-flight * Math.PI * 3.2, -flight * 4.5, -flight * Math.PI * 2.2);
+            }
+          }
+        } else {
+          const travel = T.MathUtils.smoothstep(progress, 0.08, contact);
+          const arc = Math.sin(Math.PI * travel);
+          if (wObj) {
+            wObj.position.lerpVectors(wFrom, wTo, travel);
+            wObj.position.y += arc * (whiteMove.piece === "n" ? 0.85 : 0.24);
+          }
+          if (bObj) {
+            bObj.position.lerpVectors(bFrom, bTo, travel);
+            bObj.position.y += arc * (blackMove.piece === "n" ? 0.85 : 0.24);
+          }
+          if (!hit && progress >= contact) {
+            hit = true;
+            onImpact();
+            this.burst(wTo, 8);
+            this.burst(bTo, 8);
+          }
+        }
+      });
+      if (!completed) return;
+      if (!hit) onImpact();
+    } else {
+      onImpact();
+    }
+    this.invalidateShadows();
+  }
+
   async shift(event: Shift, onLand?: (pair: number) => void) {
     const motions: {
       object: PieceMesh;
@@ -1130,6 +1266,16 @@ export class Stage {
     if (this.cameraShake && !this.motion.matches) this.shakeUntil = performance.now() + 160;
   }
 
+  celebrate() {
+    if (this.motion.matches || document.hidden) return;
+    const spots: [number, number][] = [[0, 0], [-2.1, -1.7], [2.1, 1.7], [-2.1, 1.7], [2.1, -1.7]];
+    spots.forEach(([x, z], index) => {
+      const origin = new T.Vector3(x, boardHeight + 0.12, z);
+      this.burst(origin, index === 0 ? 22 : 14);
+    });
+    this.needsRender = true;
+  }
+
   private burst(position: T.Vector3, count: number, direction?: T.Vector3) {
     if (this.motion.matches) return;
     const born = performance.now();
@@ -1138,18 +1284,27 @@ export class Stage {
     ring.rotation.x = -Math.PI / 2;
     ring.userData.shockwave = true;
     this.effects.add(ring);
-    this.particles.push({ object: ring, velocity: new T.Vector3(), born, life: 300 });
-    for (let i = 0; i < count; i++) {
+    this.particles.push({ object: ring, velocity: new T.Vector3(), born, life: 360 });
+    if (count >= 12) {
+      const echo = new T.Mesh(this.captureGeometry, this.effectMaterials[1]);
+      echo.position.copy(position).setY(0.042);
+      echo.rotation.x = -Math.PI / 2;
+      echo.userData.shockwave = true;
+      this.effects.add(echo);
+      this.particles.push({ object: echo, velocity: new T.Vector3(), born: born + 65, life: 420 });
+    }
+    const total = Math.round(count * 1.35);
+    for (let i = 0; i < total; i++) {
       const angle = i * 2.399;
-      const geometry = direction ? (i % 3 === 0 ? this.sparkGeometry : this.chipGeometry) : this.particleGeometry;
+      const geometry = direction ? (i % 3 === 0 ? this.sparkGeometry : this.chipGeometry) : (i % 4 === 0 ? this.sparkGeometry : this.particleGeometry);
       const object = new T.Mesh(geometry, this.effectMaterials[i % this.effectMaterials.length]);
-      object.position.copy(position).y += direction ? 0.37 : 0.15;
+      object.position.copy(position).y += direction ? 0.37 : 0.16;
       object.rotation.set(angle * 0.13, angle * 0.7, angle);
-      const speed = (direction ? 1.45 : 0.75) * (1 + i % 3);
-      const velocity = new T.Vector3(Math.cos(angle) * speed, 1.5 + i % 4 * 0.4, Math.sin(angle) * speed);
-      if (direction) velocity.addScaledVector(direction, 1.1);
+      const speed = (direction ? 1.55 : 0.85) * (1 + i % 3);
+      const velocity = new T.Vector3(Math.cos(angle) * speed, 1.75 + i % 4 * 0.45, Math.sin(angle) * speed);
+      if (direction) velocity.addScaledVector(direction, 1.15);
       this.effects.add(object);
-      this.particles.push({ object, born, life: 350 + i % 4 * 70, velocity });
+      this.particles.push({ object, born, life: 420 + i % 4 * 80, velocity });
     }
   }
 
@@ -1202,9 +1357,9 @@ export class Stage {
       facingAngle: this.facingAngle,
     });
     if (!this.presentation) this.placeSeats();
-    this.motes.visible = Boolean(this.rig.shot) && !reduced;
-    this.motes.rotation.y = ms * 0.000025;
-    this.motes.position.y = Math.sin(ms * 0.0004) * 0.12;
+    this.motes.visible = !reduced;
+    this.motes.rotation.y = ms * 0.000045;
+    this.motes.position.y = Math.sin(ms * 0.0006) * 0.16;
     this.canvas.dataset.cameraPosition = JSON.stringify(this.viewCamera.position.toArray());
     this.canvas.dataset.presenting = String(this.presentation);
     this.canvas.toggleAttribute("data-cinematic", Boolean(this.rig.shot));
@@ -1260,7 +1415,8 @@ export class Stage {
       }
     }
     const pulse = reduced ? 0.5 : 0.5 + Math.sin(ms * 0.004) * 0.5;
-    this.shiftMarkers.forEach(material => { material.opacity = 0.22 + pulse * 0.2; });
+    this.shiftMarkers.forEach(material => { material.opacity = 0.22 + pulse * 0.16; });
+    this.zoneMarker.opacity = 0.11 + pulse * 0.10;
     if (this.checked) {
       this.checkMarker.opacity = 0.36 + Math.sin(Math.PI * checkPhase) * 0.28;
       this.checkRipple.scale.setScalar(0.78 + checkPhase * 0.5);
@@ -1270,15 +1426,20 @@ export class Stage {
     this.hoverMarker.scale.setScalar(1 + pulse * 0.06);
     this.selectionRing.material.opacity = 0.62 + pulse * 0.26;
     this.particles = this.particles.filter(particle => {
-      const age = Math.max(0, ms - particle.born);
+      if (ms < particle.born) {
+        particle.object.visible = false;
+        return true;
+      }
+      const age = ms - particle.born;
       if (age >= particle.life) {
         this.effects.remove(particle.object);
         return false;
       }
+      particle.object.visible = true;
       if (particle.object.userData.shockwave) {
         const growth = age / particle.life;
-        particle.object.scale.set(0.5 + growth * 2.5, 0.5 + growth * 2.5, 1);
-        particle.object.visible = growth < 0.8;
+        particle.object.scale.set(0.5 + growth * 2.75, 0.5 + growth * 2.75, 1);
+        particle.object.visible = growth < 0.85;
       } else {
         particle.velocity.y -= dt * 5;
         particle.object.position.addScaledVector(particle.velocity, dt);

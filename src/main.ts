@@ -1,8 +1,19 @@
 import { Chess, type Color, type Move, type Square } from "chess.js";
 import { GameAudio } from "./audio";
 import { copy, type CopyKey } from "./copy";
-import { automaticMove, effects, Match, turnTimeMs, type MatchState } from "./rules";
-import { Connection, serverUrl, type Room, type RoomPacket } from "./network";
+import {
+  automaticMove,
+  automaticMoveFor,
+  effects,
+  fenForColor,
+  Match,
+  shiftZonePreview,
+  turnTimeMs,
+  type MatchState,
+  type MoveInput,
+  type Settlement,
+} from "./rules";
+import { Connection, serverUrl, type Room, type RoomPacket, type SimultaneousPacket } from "./network";
 import type { Difficulty } from "./bot";
 import type { Stage } from "./stage";
 import { BotPlayer, type MoveChoice } from "./bot-player";
@@ -13,6 +24,15 @@ import { drawShift } from "./shift-hud";
 import { cinematicPosition, cinematicShot, loopLobbyCinematic } from "./cinematic";
 import { template } from "./template";
 import { bindPreferenceControls, loadPreferences, savePreferences } from "./preferences";
+import {
+  BOT_RATINGS,
+  formatSignedDelta,
+  loadProfile,
+  recordMatchResult,
+  saveProfile,
+  type EloDelta,
+} from "./profile";
+import { bindDialogAccessibility, bindRovingTablist } from "./ui-primitives";
 import "./style.css";
 
 const host = document.querySelector<HTMLElement>("#app")!;
@@ -36,8 +56,11 @@ const boardGrid = new BoardGrid(get("board-grid"), (square) => void choose(squar
 const clockView = new ClockView({ w: get("white-clock"), b: get("black-clock") });
 const turnClock = new TurnClock({ w: get("white-player"), b: get("black-player") });
 const preferences = loadPreferences();
+const profile = loadProfile();
 audio.muted = preferences.muted;
 const t = (key: CopyKey) => copy[preferences.language][key];
+let currentMatchId = "";
+let currentMatchElo: EloDelta | undefined;
 let stage: Stage | undefined,
   match: Match | undefined,
   setting: "park" | "library" = "park";
@@ -52,8 +75,12 @@ let message: CopyKey | undefined,
   generation = 0;
 let lastMove: Move | undefined;
 let botReply: MoveChoice | undefined;
+let localPendingWhite: MoveInput | undefined;
+let localHandoffWaiting = false;
+let botSimultaneousReply: MoveChoice | undefined;
+let onlineSimultaneousLocked = false;
 const undoHistory: { state: MatchState; lastMove?: Move }[] = [];
-let legalCache: { match: Match; plies: number; moves: Move[] } | undefined;
+let legalCache: { match: Match; plies: number; side: Color; moves: Move[] } | undefined;
 let network: Connection | undefined,
   room: Room | undefined,
   ownColor: Color = "w",
@@ -63,8 +90,11 @@ let localReady = false;
 let forcedResult: { winner: Color | null; reason: string } | undefined;
 let roomQueue = Promise.resolve(),
   toastTimer: number | undefined,
+  splashTimer: number | undefined,
+  showcaseTimer: number | undefined,
   acceptSent = false,
   lastOutcomeGeneration = -1;
+let showcaseMode: "swap" | "slide" | "clash" = "swap";
 let lobbyCinematic: AbortController | undefined;
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -95,7 +125,10 @@ function closePanels() {
 }
 function showScreen(active: keyof typeof screens, focus?: HTMLElement) {
   const enteringStart = active === "start" && host.dataset.screen !== "start";
-  if (active !== "start") stopLobbyCinematic();
+  if (active !== "start") {
+    stopLobbyCinematic();
+    clearInterval(showcaseTimer);
+  }
   for (const [key, node] of Object.entries(screens))
     node.hidden = key !== active;
   host.dataset.screen = active;
@@ -104,11 +137,17 @@ function showScreen(active: keyof typeof screens, focus?: HTMLElement) {
   get("board-grid").hidden = active !== "play";
   if (active !== "play") {
     hideBriefing();
+    hideStartSplash();
+    get("simultaneous-banner").hidden = true;
+    button("reopen-result").hidden = true;
     clearTimeout(toastTimer);
     clearToast();
   }
   focus?.focus({ preventScroll: true });
-  if (enteringStart) void showPreview();
+  if (enteringStart) {
+    startShowcaseCycle();
+    void showPreview();
+  }
 }
 function openPanel(id: string) {
   if (document.querySelector("dialog[open]")) return;
@@ -118,6 +157,9 @@ function openPanel(id: string) {
 const noticeTitles: Partial<Record<CopyKey, CopyKey>> = {
   automaticMove: "automaticMoveTitle",
   pausedOnline: "connectionInterrupted",
+  clashOccurred: "clashOccurredTitle",
+  shiftMorphed: "shiftMorphedTitle",
+  checkNeutralized: "checkNeutralizedTitle",
 };
 function clearToast() {
   get("board-toast-title").textContent = "";
@@ -125,61 +167,213 @@ function clearToast() {
 }
 function toast(key: CopyKey) {
   const title = noticeTitles[key];
-  get("board-toast").dataset.tone = key === "automaticMove" || key === "webgl" ? "info" : "warning";
+  get("board-toast").dataset.tone =
+    key === "automaticMove" ||
+    key === "webgl" ||
+    key === "shiftMorphed" ||
+    key === "checkNeutralized"
+      ? "info"
+      : "warning";
   get("board-toast-title").textContent = title ? t(title) : "";
   get("board-toast-text").textContent = t(key);
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(clearToast, 4200);
 }
+function hideStartSplash() {
+  clearTimeout(splashTimer);
+  const splash = get("shift-splash");
+  splash.classList.remove("visible");
+  splash.hidden = true;
+}
+function showStartSplash() {
+  if (!match || reducedMotion.matches) return;
+  const splash = get("shift-splash");
+  get("shift-splash-title").textContent = "SHIFT · " + t(match.effect);
+  get("shift-splash-text").textContent = t(`${match.effect}Text`);
+  splash.hidden = false;
+  splash.classList.remove("visible");
+  void splash.offsetWidth;
+  splash.classList.add("visible");
+  clearTimeout(splashTimer);
+  splashTimer = window.setTimeout(() => {
+    splash.classList.remove("visible");
+    splashTimer = window.setTimeout(() => {
+      splash.hidden = true;
+    }, 320);
+  }, 1700);
+}
+const SHOWCASE_ORDER: ("swap" | "slide" | "clash")[] = ["swap", "slide", "clash"];
+function setShowcaseMode(next: "swap" | "slide" | "clash") {
+  showcaseMode = next;
+  const container = get("shift-showcase");
+  container.dataset.showcase = next;
+  for (const tab of container.querySelectorAll<HTMLButtonElement>("[data-showcase-tab]")) {
+    tab.setAttribute("aria-selected", String(tab.dataset.showcaseTab === next));
+  }
+  const idx = SHOWCASE_ORDER.indexOf(next);
+  get("showcase-index").textContent = `0${idx + 1}`;
+  const tagKey: Record<typeof next, CopyKey> = {
+    swap: "showcaseTagSwap",
+    slide: "showcaseTagSlide",
+    clash: "showcaseTagClash",
+  };
+  get("showcase-tag").textContent = t(tagKey[next]);
+  const captionKey: Record<typeof next, CopyKey> = {
+    swap: "showcaseCaptionSwap",
+    slide: "showcaseCaptionSlide",
+    clash: "showcaseCaptionClash",
+  };
+  get("showcase-caption").textContent = t(captionKey[next]);
+}
+function stepShowcase(delta: number) {
+  const idx = SHOWCASE_ORDER.indexOf(showcaseMode);
+  const next = SHOWCASE_ORDER[(idx + delta + SHOWCASE_ORDER.length) % SHOWCASE_ORDER.length];
+  setShowcaseMode(next);
+  startShowcaseCycle();
+}
+function startShowcaseCycle() {
+  clearInterval(showcaseTimer);
+  if (reducedMotion.matches || host.dataset.screen !== "start") return;
+  showcaseTimer = window.setInterval(() => {
+    if (host.dataset.screen !== "start" || document.hidden || document.querySelector("dialog[open]")) return;
+    const next = SHOWCASE_ORDER[(SHOWCASE_ORDER.indexOf(showcaseMode) + 1) % SHOWCASE_ORDER.length];
+    setShowcaseMode(next);
+  }, 5600);
+}
+function resetSimultaneousState() {
+  localPendingWhite = undefined;
+  localHandoffWaiting = false;
+  botSimultaneousReply = undefined;
+  onlineSimultaneousLocked = false;
+}
 const ended = () => Boolean(match?.isEnded() || forcedResult);
+const activePlaySide = (): Color => {
+  if (!match) return "w";
+  if (match.isSimultaneousTurn()) {
+    if (mode === "local") return localPendingWhite ? "b" : "w";
+    return watching ? "w" : ownColor;
+  }
+  return match.chess.turn();
+};
 const cameraSide = (): Color => {
   if (mode === "local") {
-    return preferences.localFlip && match ? match.chess.turn() : "w";
+    if (!preferences.localFlip || !match) return "w";
+    if (match.isSimultaneousTurn()) return localPendingWhite && !localHandoffWaiting ? "b" : "w";
+    return match.chess.turn();
   }
   return watching ? "w" : ownColor;
 };
-const mayPlay = (over = ended()) =>
-  Boolean(
+const mayPlay = (over = ended()) => {
+  if (!match || watching || busy || over) return false;
+  if (mode === "online") {
+    if (
+      status !== "connected" ||
+      room?.phase !== "playing" ||
+      !room.players.every((p) => p.connected)
+    )
+      return false;
+    if (match.isSimultaneousTurn()) {
+      return !onlineSimultaneousLocked && !room.simultaneous?.[ownColor];
+    }
+    return match.chess.turn() === ownColor;
+  }
+  if (!localReady) return false;
+  if (match.isSimultaneousTurn()) {
+    if (mode === "local") return !localHandoffWaiting;
+    return true;
+  }
+  return mode === "local" || match.chess.turn() === ownColor;
+};
+
+function drawSimultaneousBanner(over: boolean) {
+  const banner = get("simultaneous-banner");
+  const active = Boolean(
     match &&
-    !watching &&
-    !busy &&
-    !over &&
-    (mode === "local" || match.chess.turn() === ownColor) &&
-    (mode !== "online" ||
-      (status === "connected" &&
-        room?.phase === "playing" &&
-        room.players.every((p) => p.connected))) &&
-    (mode === "online" || localReady),
+      !over &&
+      match.isSimultaneousTurn() &&
+      (mode === "online" ? room?.phase === "playing" : localReady),
   );
+  banner.hidden = !active;
+  if (!active || !match) return;
+  const handoff = button("simultaneous-handoff");
+  const lockW = get("lock-w");
+  const lockB = get("lock-b");
+  let wLocked = false;
+  let bLocked = false;
+  if (mode === "local") {
+    wLocked = Boolean(localPendingWhite);
+    bLocked = false;
+  } else if (mode === "bot") {
+    wLocked = ownColor === "b" && Boolean(botSimultaneousReply);
+    bLocked = ownColor === "w" && Boolean(botSimultaneousReply);
+  } else {
+    wLocked = Boolean(room?.simultaneous?.w || (ownColor === "w" && onlineSimultaneousLocked));
+    bLocked = Boolean(room?.simultaneous?.b || (ownColor === "b" && onlineSimultaneousLocked));
+  }
+  lockW.dataset.locked = String(wLocked);
+  lockB.dataset.locked = String(bLocked);
+  if (mode === "local" && localHandoffWaiting) {
+    get("simultaneous-title").textContent = t("simultaneousHandoffTitle");
+    get("simultaneous-detail").textContent = t("simultaneousHandoffBody");
+    handoff.textContent = t("simultaneousHandoffAction");
+    handoff.hidden = false;
+  } else {
+    handoff.hidden = true;
+    get("simultaneous-title").textContent = t("simultaneousTurn");
+    if (mode === "online" && (onlineSimultaneousLocked || room?.simultaneous?.[ownColor])) {
+      get("simultaneous-detail").textContent = t("simultaneousLocked");
+    } else if (mode === "local") {
+      get("simultaneous-detail").textContent = t(
+        localPendingWhite ? "simultaneousPickBlack" : "simultaneousPickWhite",
+      );
+    } else {
+      get("simultaneous-detail").textContent = t(
+        ownColor === "w" ? "simultaneousPickWhite" : "simultaneousPickBlack",
+      );
+    }
+  }
+}
 
 function draw(keepTarget = false) {
   if (!match) return;
-  const { chess, pending, plies, effect } = match,
-    side = chess.turn();
+  const { chess, pending, plies, effect } = match;
+  const simultaneous = match.isSimultaneousTurn();
+  const side = activePlaySide();
   const over = ended();
   const playable = mayPlay(over);
   const king = chess.isCheck()
     ? chess
         .board()
         .flat()
-        .find((p) => p?.type === "k" && p.color === side)
+        .find((p) => p?.type === "k" && p.color === chess.turn())
     : undefined;
-  if (playable && (legalCache?.match !== match || legalCache.plies !== plies))
-    legalCache = { match, plies, moves: chess.moves({ verbose: true }) };
+  if (
+    playable &&
+    (legalCache?.match !== match || legalCache.plies !== plies || legalCache.side !== side)
+  ) {
+    legalCache = { match, plies, side, moves: match.legalMovesFor(side) };
+  }
   const legal = playable ? legalCache!.moves : [];
   const squares = [...new Set(legal.filter((move) => move.from === selected).map((move) => move.to))];
   const turn = get("turn");
   turn.dataset.side = side;
+  const turnHud = get("turn-hud");
+  turnHud.dataset.side = side;
+  turnHud.dataset.check = String(Boolean(king && !over));
+  turnHud.dataset.simultaneous = String(Boolean(simultaneous));
+  turnHud.dataset.over = String(over);
   turn.textContent = forcedResult
     ? resultTitle(forcedResult.winner)
     : over && chess.isCheckmate()
-      ? t(side === "w" ? "blackWins" : "whiteWins")
+      ? t(chess.turn() === "w" ? "blackWins" : "whiteWins")
       : over
         ? t("draw")
-        : bot.thinking && side !== ownColor
-          ? t("thinking")
-          : t(side === "w" ? "whiteTurn" : "blackTurn") +
-          (king ? " · " + t("check") : "");
+        : simultaneous
+          ? t("simultaneousTurn")
+          : bot.thinking && chess.turn() !== ownColor
+            ? t("thinking")
+            : t(chess.turn() === "w" ? "whiteTurn" : "blackTurn") +
+            (king ? " · " + t("check") : "");
   get("rule").textContent =
     t("sharedShift") + " · " + t(effect) + " · " + t(match.mode);
   get("location").textContent = t(visualTheme());
@@ -192,6 +386,7 @@ function draw(keepTarget = false) {
         " · " +
         t(watching ? "watching" : ownColor === "w" ? "yourWhite" : "yourBlack");
   drawShift(match, t, message, pending, over);
+  drawSimultaneousBanner(over);
   drawPlayers(match, side, over, t);
   const previous = keepTarget ? targetPicker.value : "";
   const possible = new Set(legal.map((m) => m.from));
@@ -226,9 +421,10 @@ function draw(keepTarget = false) {
   button("undo").hidden = mode === "online";
   button("undo").disabled = !canUndo();
   boardGrid.draw(chess, {
-    side: cameraSide(), playable, selected, lastMove,
+    side: cameraSide(), activeSide: side, playable, selected, lastMove,
     targets: squares, hints: preferences.hints, check: king?.square, shifts: over ? undefined : pending?.pairs,
   }, t);
+  const zone = over || pending ? null : shiftZonePreview(match);
   stage?.indicate(
     over ? null : pending,
     selected,
@@ -236,8 +432,21 @@ function draw(keepTarget = false) {
     king?.square,
     lastMove,
     message === "shiftApplied",
+    zone?.squares ?? [],
   );
   stage?.setInteraction(!flatBoard && playable, side);
+}
+function drawProfile() {
+  get("profile-name").textContent = profile.name;
+  get("profile-elo-value").textContent = String(profile.rating);
+  get("profile-record").textContent = t("profileRecord")
+    .replace("{w}", String(profile.wins))
+    .replace("{d}", String(profile.draws))
+    .replace("{l}", String(profile.losses));
+  get("mode-profile-name").textContent = profile.name;
+  get("mode-profile-elo").textContent = String(profile.rating);
+  const selectedDiff = (get<HTMLSelectElement>("difficulty")?.value as Difficulty) || "normal";
+  get("bot-rating-tag").textContent = `${t("ratedBadge")} · ${t("eloLabel")} ${BOT_RATINGS[selectedDiff]}`;
 }
 function resultTitle(winner: Color | null) {
   return t(
@@ -253,17 +462,68 @@ function playOutcome() {
   lastOutcomeGeneration = generation;
   const result = winner();
   if (result === null) audio.draw();
-  else if (mode === "local" || watching || result === ownColor) audio.victory();
-  else audio.defeat();
+  else if (mode === "local" || watching || result === ownColor) {
+    audio.victory();
+    stage?.celebrate();
+  } else audio.defeat();
+}
+function ensureResultRecorded() {
+  if (!match || !ended() || !currentMatchId) return undefined;
+  const winColor = winner();
+  const outcome =
+    winColor === null ? "draw" : winColor === ownColor ? "win" : "loss";
+  const opponentName =
+    mode === "bot"
+      ? `${t("botMode")} (${t(difficulty)})`
+      : mode === "online"
+        ? room?.players.find((p) => p.color !== ownColor)?.name ?? t("onlineMode")
+        : t("localMode");
+  currentMatchElo = recordMatchResult(profile, {
+    matchId: currentMatchId,
+    mode,
+    watching,
+    difficulty,
+    opponentName,
+    outcome,
+  });
+  drawProfile();
+  return currentMatchElo;
 }
 function drawResult() {
+  const elo = ensureResultRecorded();
   get("result-title").textContent = resultTitle(winner());
   get("result-detail").textContent =
     forcedResult?.reason === "left"
       ? t("opponentLeft")
       : forcedResult?.reason === "resigned"
         ? t("resigned")
-        : forcedResult?.reason === "timeout" ? t("timeout") : t("finished");
+        : forcedResult?.reason === "timeout"
+          ? t("timeout")
+          : match?.chess.isCheckmate()
+            ? t("checkmateReason")
+            : match?.chess.isStalemate()
+              ? t("stalemateReason")
+              : match?.isEnded()
+                ? t("drawReason")
+                : t("finished");
+  const ratingBox = get("result-rating");
+  const unratedBox = get("result-unrated");
+  if (elo?.rated) {
+    ratingBox.hidden = false;
+    unratedBox.hidden = true;
+    get("result-elo-before").textContent = String(elo.before);
+    get("result-elo-after").textContent = String(elo.after);
+    const deltaEl = get("result-elo-delta");
+    deltaEl.textContent = formatSignedDelta(elo.delta);
+    deltaEl.dataset.sign = elo.delta > 0 ? "pos" : elo.delta < 0 ? "neg" : "zero";
+    get("result-rating-opponent").textContent = t("opponentElo")
+      .replace("{name}", elo.opponentName)
+      .replace("{n}", String(elo.opponentRating ?? 1200));
+  } else {
+    ratingBox.hidden = true;
+    unratedBox.hidden = false;
+    unratedBox.textContent = t(watching ? "unratedSpectateNote" : "unratedLocalNote");
+  }
   button("result-undo").hidden = !canUndo();
   button("rematch").hidden = watching;
   button("rematch").disabled =
@@ -278,6 +538,7 @@ function drawResult() {
 function showResult() {
   if (!match || !ended()) return;
   hideBriefing();
+  button("reopen-result").hidden = true;
   drawResult();
   if (dialog("result-dialog").open) return;
   closePanels();
@@ -288,7 +549,7 @@ function drawBriefing() {
   const map = t(visualTheme());
   const timing = t(match.mode);
   for (const panel of ["briefing", "shift-rules"]) {
-    get(`${panel}-title`).textContent = t(match.effect);
+    get(`${panel}-title`).textContent = "SHIFT · " + t(match.effect);
     get(`${panel}-map`).textContent = map + " · " + timing;
     get(`${panel}-badge-map`).textContent = map;
     get(`${panel}-badge-timing`).textContent = timing;
@@ -338,6 +599,10 @@ function translate() {
     labelIcon(node, t(node.dataset.tooltip as CopyKey));
   drawSound();
   drawFullscreen();
+  drawProfile();
+  const initialStatus = document.getElementById("initial-loader-status");
+  if (initialStatus) initialStatus.textContent = t("loading");
+  setShowcaseMode(showcaseMode);
   if (get("settings-notice").textContent) {
     get("settings-notice").textContent = t("fullscreenUnavailable");
   }
@@ -493,6 +758,11 @@ async function startLocal(next: "local" | "bot") {
   if (loading) return;
   generation++;
   resetBot();
+  resetSimultaneousState();
+  hideStartSplash();
+  button("reopen-result").hidden = true;
+  currentMatchId = `${next}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  currentMatchElo = undefined;
   mode = next;
   watching = false;
   localReady = false;
@@ -523,25 +793,64 @@ function startLocalClock() {
   const current = match;
   if (!current || mode === "online" || !localReady || ended()) return;
   const plies = current.plies;
-  turnClock.show(current.chess.turn(), turnTimeMs, turnTimeMs, true, () => {
+  const clockSide = current.isSimultaneousTurn() ? activePlaySide() : current.chess.turn();
+  turnClock.show(clockSide, turnTimeMs, turnTimeMs, true, () => {
     if (match !== current || current.plies !== plies || ended()) return;
-    const move = automaticMove(current);
-    if (!move) return;
     dialog("promotion").close();
     busy = false;
     resetBot();
     toast("automaticMove");
+    if (current.isSimultaneousTurn()) {
+      const white = localPendingWhite ?? automaticMoveFor(current, "w");
+      const black =
+        (mode === "bot" && ownColor === "w" ? botSimultaneousReply : undefined) ??
+        automaticMoveFor(current, "b");
+      if (!white || !black) return;
+      void executeSimultaneous(
+        { from: white.from, to: white.to, promotion: white.promotion },
+        { from: black.from, to: black.to, promotion: black.promotion },
+      );
+      return;
+    }
+    const move = automaticMove(current);
+    if (!move) return;
     void makeMove(move.from, move.to, move.promotion);
   });
 }
-async function animateMove(
-  move: Move,
-  settlement: ReturnType<Match["settle"]>,
+async function animateShiftAndMorph(
+  settlement: Settlement,
   beforeShift: ReturnType<Match["chess"]["board"]>,
+  finalBoard?: ReturnType<Match["chess"]["board"]>,
 ) {
   const scene = stage;
   const activeGeneration = generation;
   const shift = settlement.applied ? settlement.due : null;
+  if (shift) {
+    if (match) drawShift(match, t, message, shift, false, beforeShift);
+    audio.shiftExecute(preferences.speed === "fast" ? 0.58 : 1);
+    if (stage === scene) await scene?.shift(shift, pair => audio.shiftLand(pair));
+    if (generation !== activeGeneration) return;
+    if (finalBoard && stage === scene) scene?.sync(finalBoard);
+    if (settlement.morphedSquares?.length) {
+      audio.morph();
+      toast("shiftMorphed");
+      if (stage === scene) await scene?.morphAt(settlement.morphedSquares);
+      if (generation !== activeGeneration) return;
+    }
+    message = "shiftApplied";
+  } else if (settlement.due) {
+    message = "shiftSkipped";
+  }
+  if (settlement.announced) audio.shiftWarning();
+}
+async function animateMove(
+  move: Move,
+  settlement: Settlement,
+  beforeShift: ReturnType<Match["chess"]["board"]>,
+  finalBoard?: ReturnType<Match["chess"]["board"]>,
+) {
+  const scene = stage;
+  const activeGeneration = generation;
   const impact = () => audio.move(Boolean(move.captured), move.piece);
   if (scene) await scene.move(move, impact);
   else impact();
@@ -552,33 +861,87 @@ async function animateMove(
     if (scene && stage === scene) await scene.promote(move.to);
     if (generation !== activeGeneration) return;
   }
-  if (shift) {
-    if (match) drawShift(match, t, message, shift, false, beforeShift);
-    audio.shiftExecute(preferences.speed === "fast" ? 0.58 : 1);
-    if (stage === scene) await scene?.shift(shift, pair => audio.shiftLand(pair));
-    if (generation !== activeGeneration) return;
-    message = "shiftApplied";
-  } else if (settlement.due) message = "shiftSkipped";
-  if (settlement.announced) audio.shiftWarning();
+  await animateShiftAndMorph(settlement, beforeShift, finalBoard);
 }
-async function makeMove(from: Square, to: Square, promotion?: string) {
+async function animateSimultaneous(
+  whiteMove: Move,
+  blackMove: Move,
+  clash: boolean,
+  clashSquare: Square | undefined,
+  clashMidpoint: [Square, Square] | undefined,
+  neutralizedCheck: boolean,
+  settlement: Settlement,
+  beforeShift: ReturnType<Match["chess"]["board"]>,
+  finalBoard: ReturnType<Match["chess"]["board"]>,
+) {
+  const scene = stage;
+  const activeGeneration = generation;
+  const onImpact = () => {
+    if (clash) audio.clash();
+    else audio.move(Boolean(whiteMove.captured || blackMove.captured), whiteMove.piece);
+  };
+  if (scene) {
+    await scene.moveSimultaneous(
+      whiteMove,
+      blackMove,
+      clash,
+      clashSquare,
+      clashMidpoint,
+      onImpact,
+    );
+  } else onImpact();
+  if (generation !== activeGeneration) return;
+  if (stage === scene) scene?.sync(beforeShift);
+  lastMove = blackMove;
+  if (clash) toast("clashOccurred");
+  if (neutralizedCheck) toast("checkNeutralized");
+  await animateShiftAndMorph(settlement, beforeShift, finalBoard);
+}
+function requestBotSimultaneous(current: Match) {
+  if (mode !== "bot" || !current.isSimultaneousTurn()) return;
+  const botColor: Color = ownColor === "w" ? "b" : "w";
+  botSimultaneousReply = undefined;
+  bot.request(
+    current,
+    difficulty,
+    (move) => {
+      if (match !== current || !current.isSimultaneousTurn()) return;
+      botSimultaneousReply = move;
+      draw();
+    },
+    botColor,
+  );
+}
+async function executeSimultaneous(white: MoveInput, black: MoveInput) {
   if (!match || busy || ended()) return;
   turnClock.clear();
   const current = match;
   busy = true;
   selected = undefined;
   message = undefined;
+  resetSimultaneousState();
   draw();
   try {
     const previous = { state: current.snapshot(), lastMove };
-    const move = current.play(from, to, promotion),
-      beforeShift = current.chess.board();
+    const outcome = current.playSimultaneous(white, black);
     undoHistory.push(previous);
-    const settlement = current.settle();
-    if (mode === "bot" && current.chess.turn() !== ownColor && !current.isEnded()) requestBotMove(current);
-    await animateMove(move, settlement, beforeShift);
+    const finalBoard = current.chess.board();
+    if (mode === "bot" && current.chess.turn() !== ownColor && !current.isEnded()) {
+      requestBotMove(current);
+    }
+    await animateSimultaneous(
+      outcome.whiteMove,
+      outcome.blackMove,
+      outcome.clash,
+      outcome.clashSquare,
+      outcome.clashMidpoint,
+      outcome.neutralizedCheck,
+      outcome,
+      outcome.beforeShift,
+      finalBoard,
+    );
     if (match !== current) return;
-    stage?.sync(current.chess.board());
+    stage?.sync(finalBoard);
     if (mode === "local" && preferences.localFlip && !ended()) {
       host.dataset.facing = cameraSide();
       if (!flatBoard && stage) {
@@ -603,6 +966,52 @@ async function makeMove(from: Square, to: Square, promotion?: string) {
     playBotReply();
   }
 }
+async function makeMove(from: Square, to: Square, promotion?: string) {
+  if (!match || busy || ended()) return;
+  turnClock.clear();
+  const current = match;
+  busy = true;
+  selected = undefined;
+  message = undefined;
+  draw();
+  try {
+    const previous = { state: current.snapshot(), lastMove };
+    const move = current.play(from, to, promotion),
+      beforeShift = current.chess.board();
+    undoHistory.push(previous);
+    const settlement = current.settle();
+    const finalBoard = current.chess.board();
+    if (mode === "bot" && !current.isEnded()) {
+      if (current.isSimultaneousTurn()) requestBotSimultaneous(current);
+      else if (current.chess.turn() !== ownColor) requestBotMove(current);
+    }
+    await animateMove(move, settlement, beforeShift, finalBoard);
+    if (match !== current) return;
+    stage?.sync(finalBoard);
+    if (mode === "local" && preferences.localFlip && !ended()) {
+      host.dataset.facing = cameraSide();
+      if (!flatBoard && stage) {
+        await stage.rotateTo(cameraSide());
+      } else {
+        frameMatch();
+      }
+    }
+  } finally {
+    if (match === current) {
+      busy = false;
+      draw();
+    }
+  }
+  if (match !== current) return;
+  if (ended()) {
+    playOutcome();
+    showResult();
+  } else {
+    if (current.chess.isCheck()) audio.check();
+    startLocalClock();
+    if (!current.isSimultaneousTurn()) playBotReply();
+  }
+}
 function undoIndex() {
   if (mode === "local") return undoHistory.length - 1;
   for (let i = undoHistory.length - 1; i >= 0; i--) {
@@ -619,6 +1028,7 @@ function undoMove() {
   const previous = undoHistory[index];
   generation++;
   resetBot();
+  resetSimultaneousState();
   undoHistory.length = index;
   closePanels();
   forcedResult = undefined;
@@ -631,12 +1041,14 @@ function undoMove() {
   stage?.sync(match.chess.board());
   frameMatch();
   draw();
+  if (mode === "bot" && match.isSimultaneousTurn()) requestBotSimultaneous(match);
   startLocalClock();
 }
 async function choose(square: Square, keepSelected = false) {
   if (!mayPlay() || !match) return;
   const chess = match.chess;
-  if (chess.get(square)?.color === chess.turn()) {
+  const side = activePlaySide();
+  if (chess.get(square)?.color === side) {
     if (keepSelected && selected === square) return;
     selected = selected === square ? undefined : square;
     audio.select();
@@ -645,9 +1057,12 @@ async function choose(square: Square, keepSelected = false) {
   }
   if (!selected) return;
   const from = selected,
-    candidates = legalCache?.match === match && legalCache.plies === match.plies
-      ? legalCache.moves.filter((m) => m.from === from && m.to === square)
-      : chess.moves({ square: from, verbose: true }).filter((m) => m.to === square);
+    candidates =
+      legalCache?.match === match &&
+      legalCache.plies === match.plies &&
+      legalCache.side === side
+        ? legalCache.moves.filter((m) => m.from === from && m.to === square)
+        : match.legalMovesFor(side).filter((m) => m.from === from && m.to === square);
   if (!candidates.length) return;
   dialog("moves-dialog").close();
   let promotion: string | undefined;
@@ -670,6 +1085,52 @@ async function choose(square: Square, keepSelected = false) {
       return;
     }
   }
+  if (match.isSimultaneousTurn()) {
+    const moveChoice: MoveInput = { from, to: square, promotion };
+    if (mode === "online") {
+      if (
+        network?.send({
+          type: "move",
+          from,
+          to: square,
+          promotion,
+          revision: room!.revision,
+        })
+      ) {
+        onlineSimultaneousLocked = true;
+        selected = undefined;
+        audio.select();
+        draw();
+      } else toast("pausedOnline");
+      return;
+    }
+    if (mode === "local") {
+      if (!localPendingWhite) {
+        localPendingWhite = moveChoice;
+        localHandoffWaiting = true;
+        selected = undefined;
+        audio.select();
+        draw();
+        return;
+      }
+      await executeSimultaneous(localPendingWhite, moveChoice);
+      return;
+    }
+    // Bot simultaneous turn
+    const botColor: Color = ownColor === "w" ? "b" : "w";
+    const botMove = botSimultaneousReply ?? automaticMoveFor(match, botColor);
+    if (!botMove) return;
+    const botChoice: MoveInput = {
+      from: botMove.from,
+      to: botMove.to,
+      promotion: botMove.promotion,
+    };
+    await executeSimultaneous(
+      ownColor === "w" ? moveChoice : botChoice,
+      ownColor === "w" ? botChoice : moveChoice,
+    );
+    return;
+  }
   if (mode === "online") {
     if (
       network?.send({
@@ -689,6 +1150,7 @@ async function choose(square: Square, keepSelected = false) {
 function resetBot() {
   bot.reset();
   botReply = undefined;
+  botSimultaneousReply = undefined;
 }
 function requestBotMove(current: Match) {
   bot.request(current, difficulty, (move) => {
@@ -698,7 +1160,7 @@ function requestBotMove(current: Match) {
   });
 }
 function playBotReply() {
-  if (busy || !localReady || mode !== "bot" || match?.chess.turn() === ownColor || !botReply) return;
+  if (busy || !localReady || mode !== "bot" || match?.isSimultaneousTurn() || match?.chess.turn() === ownColor || !botReply) return;
   const move = botReply;
   botReply = undefined;
   void makeMove(move.from, move.to, move.promotion);
@@ -706,6 +1168,8 @@ function playBotReply() {
 function leaveGame() {
   generation++;
   resetBot();
+  resetSimultaneousState();
+  hideStartSplash();
   network?.close();
   network = undefined;
   room = undefined;
@@ -791,6 +1255,9 @@ async function receiveRoom(packet: RoomPacket, receivedAt: number) {
       busy = false;
       selected = undefined;
       message = undefined;
+      currentMatchElo = undefined;
+      button("reopen-result").hidden = true;
+      currentMatchId = `online:${next.code}:${next.state.mode}:${next.state.effect}:${next.players.map((p) => `${p.id}:${p.color}`).join("|")}`;
       closePanels();
       match = Match.restore(next.state);
       setting = next.setting;
@@ -801,6 +1268,10 @@ async function receiveRoom(packet: RoomPacket, receivedAt: number) {
     return;
   }
   hideBriefing();
+  const enteringPlay = old?.phase === "briefing" && next.phase === "playing";
+  if (!currentMatchId) {
+    currentMatchId = `online:${next.code}:${next.state.mode}:${next.state.effect}:${next.players.map((p) => `${p.id}:${p.color}`).join("|")}`;
+  }
   if (packet.automatic) {
     dialog("promotion").close();
     toast("automaticMove");
@@ -814,27 +1285,66 @@ async function receiveRoom(packet: RoomPacket, receivedAt: number) {
   if (match.plies !== next.state.plies) {
     lastMove = undefined;
     message = undefined;
+    onlineSimultaneousLocked = false;
   }
-  if (packet.move && packet.settlement && match.plies + 1 === next.state.plies && !document.hidden) {
+  const finalMatch = Match.restore(next.state);
+  if (
+    packet.simultaneous &&
+    packet.settlement &&
+    match.plies + 2 === next.state.plies &&
+    !document.hidden
+  ) {
+    const current = match;
+    busy = true;
+    selected = undefined;
+    draw();
+    const sim: SimultaneousPacket = packet.simultaneous;
+    const baseFen = match.chess.fen();
+    const whiteMove = new Chess(fenForColor(baseFen, "w")).move(sim.white);
+    const blackMove = new Chess(fenForColor(baseFen, "b")).move(sim.black);
+    const simPreview = Match.restore(match.snapshot());
+    const outcome = simPreview.playSimultaneous(sim.white, sim.black);
+    await animateSimultaneous(
+      whiteMove,
+      blackMove,
+      sim.clash,
+      sim.clashSquare,
+      sim.clashMidpoint,
+      Boolean(sim.neutralizedCheck),
+      packet.settlement,
+      outcome.beforeShift,
+      finalMatch.chess.board(),
+    );
+    if (match !== current || network !== connection) return;
+  } else if (
+    packet.move &&
+    packet.settlement &&
+    match.plies + 1 === next.state.plies &&
+    !document.hidden
+  ) {
     const current = match;
     busy = true;
     selected = undefined;
     draw();
     const move = match.chess.move(packet.move);
-    await animateMove(move, packet.settlement, match.chess.board());
+    await animateMove(move, packet.settlement, match.chess.board(), finalMatch.chess.board());
     if (match !== current || network !== connection) return;
   }
-  match = Match.restore(next.state);
+  match = finalMatch;
   forcedResult = next.result;
   busy = false;
   stage?.sync(match.chess.board());
   frameMatch();
   draw();
+  if (enteringPlay) {
+    audio.matchStart();
+    showStartSplash();
+  }
   if (!watching && !next.players.every((p) => p.connected) && next.phase === "playing") toast("opponentDisconnected");
   if (next.phase === "ended") {
     playOutcome();
     showResult();
-  } else if (packet.move && match.chess.isCheck()) audio.check();
+  } else if ((packet.move || packet.simultaneous) && match.chess.isCheck()) audio.check();
 }
 let playerId: string | undefined;
 function bindNetwork(connection: Connection) {
@@ -864,6 +1374,7 @@ function bindNetwork(connection: Connection) {
     }
     if (packet.type === "error") {
       busy = false;
+      onlineSimultaneousLocked = false;
       draw();
       const key = (packet.key in copy.vi ? packet.key : "invalid") as CopyKey;
       get("online-error").textContent = t(key);
@@ -935,10 +1446,55 @@ button("accept-shift").onclick = () => {
   }
   localReady = true;
   hideBriefing();
+  audio.matchStart();
+  showStartSplash();
   if (mode === "bot" && ownColor === "b" && match) requestBotMove(match);
   if (!busy) startLocalClock();
   draw();
 };
+button("simultaneous-handoff").onclick = async () => {
+  if (!match || mode !== "local" || !localHandoffWaiting || busy) return;
+  localHandoffWaiting = false;
+  if (preferences.localFlip && !flatBoard && stage) {
+    busy = true;
+    draw();
+    host.dataset.facing = cameraSide();
+    await stage.rotateTo(cameraSide());
+    busy = false;
+  } else {
+    frameMatch();
+  }
+  draw();
+  startLocalClock();
+};
+button("result-inspect").onclick = () => {
+  dialog("result-dialog").close();
+  if (ended()) button("reopen-result").hidden = false;
+};
+button("reopen-result").onclick = () => {
+  if (ended()) showResult();
+};
+select("difficulty").addEventListener("change", drawProfile);
+input("player-name").value = profile.name;
+input("player-name").addEventListener("change", () => {
+  const next = input("player-name").value.trim().slice(0, 24);
+  if (!next) return;
+  profile.name = next;
+  saveProfile(profile);
+  drawProfile();
+});
+const showcaseTabs = [...host.querySelectorAll<HTMLButtonElement>("[data-showcase-tab]")];
+bindRovingTablist(showcaseTabs, (tab) => {
+  const next = tab.dataset.showcaseTab as "swap" | "slide" | "clash";
+  setShowcaseMode(next);
+  startShowcaseCycle();
+});
+button("showcase-prev").onclick = () => stepShowcase(-1);
+button("showcase-next").onclick = () => stepShowcase(1);
+for (const panel of host.querySelectorAll<HTMLDialogElement>("dialog")) {
+  const blocking = ["briefing", "result-dialog", "promotion"].includes(panel.id);
+  bindDialogAccessibility(panel, { dismissOnBackdrop: !blocking });
+}
 button("shift-info").onclick = () => {
   hideBriefing();
   drawBriefing();
@@ -1051,6 +1607,8 @@ for (const panel of host.querySelectorAll("dialog"))
 document.addEventListener("visibilitychange", updateLobbyCinematic);
 reducedMotion.addEventListener("change", () => {
   updateLobbyCinematic();
+  if (reducedMotion.matches) clearInterval(showcaseTimer);
+  else startShowcaseCycle();
   if (reducedMotion.matches && host.dataset.screen === "start") void showPreview();
 });
 dialog("result-dialog").addEventListener("cancel", (event) =>

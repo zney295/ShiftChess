@@ -39,7 +39,7 @@ Màn giới thiệu là trạm dừng bắt buộc trước khi quân cờ đầ
 ```text
 ┌────────────────────────────────────────────────────────┐
 │  SHIFT · [TÊN HIỆU ỨNG]                                │
-│  [Bản đồ: Thư viện/Công viên]   [Chu kỳ: Mỗi 5 lượt (10 nước)]│
+│  [Bản đồ: Thư viện/Công viên]  [Chu kỳ: Mỗi 10 lượt (20 nước)]│
 │  ┌──────────────────────────────────────────────────┐  │
 │  │ Luật chính: Câu tóm tắt cơ chế cốt lõi (1 câu)   │  │
 │  └──────────────────────────────────────────────────┘  │
@@ -54,7 +54,7 @@ Màn giới thiệu là trạm dừng bắt buộc trước khi quân cờ đầ
 1. **Khung chứa và chất liệu:** Hộp thoại nổi dùng nền gỗ óc chó viền chỉ đồng kép, phủ bóng mờ nhẹ lên bàn cờ 3D phía sau.
 2. **Tiêu đề và huy hiệu (Badges):**
    - Tiêu đề chính viết hoa chữ serif: `SHIFT · [TÊN HIỆU ỨNG]`.
-   - Cặp nhãn huy hiệu khảm đồng: nhãn trái chỉ bối cảnh bàn cờ (`Công viên` / `Thư viện`), nhãn phải chỉ nhịp kích hoạt (`Định kỳ mỗi 3 vòng / 6 nước` hoặc `Cuối ván ở vòng 12`).
+   - Cặp nhãn huy hiệu khảm đồng: nhãn trái chỉ bối cảnh bàn cờ (`Công viên` / `Thư viện`), nhãn phải chỉ nhịp kích hoạt (`Định kỳ mỗi 10 lượt / 20 nước` hoặc `Cuối ván ở vòng 12`).
 3. **Ô quy tắc nổi bật (Rule Callout):** Đặt trong rãnh chìm viền đồng màu ngà, hiển thị câu mô tả trực diện cơ chế chỉ trong một hơi thở (ví dụ: *"Đổi vị trí quân trên hai ô được đánh dấu. Quân có thể chuyển sang ô trống"*).
 4. **Ba gạch đầu dòng chuẩn mực:**
    - *Thời điểm cảnh báo:* Đánh dấu rõ ô A, B trước 2 nước để người chơi tính toán.
@@ -70,7 +70,28 @@ Ngay khi đóng Màn giới thiệu, một dải banner động lướt qua trun
 
 1. **Dải ruy-băng động (Splash):** Hiển thị giữa bàn cờ trong 1.5 – 1.8 giây với nội dung: `⚡ SHIFT: [TÊN HIỆU ỨNG] · [MÔ TẢ NGẮN] ⚡`. Kèm âm thanh báo hiệu nhẹ (`shiftWarning`).
 2. **Thu gọn vào HUD:** Sau khi lướt qua, banner thu nhỏ và đáp xuống thanh công cụ **Shift Widget** ở góc màn hình.
-3. **Nhịp đếm tiến độ:** 6 chấm tròn (Pips) bằng đồng sáng dần theo từng nước đi, chuyển sang trạng thái cảnh báo nhấp nháy khi còn 2 nước cuối trước nhịp SHIFT.
+3. **Nhịp đếm tiến độ:** 20 chấm tròn (Pips) bằng đồng sáng dần theo từng nước đi, chuyển sang trạng thái cảnh báo nhấp nháy khi còn 2 nước cuối trước nhịp SHIFT.
+
+## Cơ chế Lượt SHIFT Đột Biến: Đánh Đồng Thời & Va Chạm Triệt Tiêu
+
+Tại mỗi chu kỳ 20 nước (lượt thứ 20, 40, 60,...), ván đấu không đánh luân phiên mà bước vào **Lượt Đột Biến Đồng Thời (Simultaneous Turn)**:
+1. **Ra đòn đồng thời:** Cả Trắng và Đen cùng có 30 giây để bí mật chọn 1 nước đi hợp lệ. Nước đi của đối phương được giữ kín cho đến khi cả hai bên bấm Xác nhận (hoặc hết giờ).
+2. **Va chạm tự đá nhau ra sàn (Mutual Annihilation):**
+   - **Cùng ô đích ($Target_W == Target_B$):** Nếu cả hai bên cùng điều quân tới một ô, hai quân va chạm trực diện $\rightarrow$ **Cả hai quân cùng bị loại bỏ và văng ra khỏi bàn cờ**!
+   - **Đi xuyên qua nhau ($From_W == To_B \land From_B == To_W$):** Hai quân đâm vào nhau trên đường đổi vị trí $\rightarrow$ **Cả hai quân cùng bị tiêu diệt**.
+   - **Không va chạm:** Hai quân di chuyển tới ô đích bình thường.
+3. **Thực thi SHIFT:** Sau va chạm đồng thời, cặp ô SHIFT (đã báo trước từ nước 18) sẽ thực hiện tráo đổi vị trí cho nhau. Ván đấu sau đó quay về thể thức theo lượt bình thường.
+
+## Bộ quy luật xuất hiện SHIFT xác định (Deterministic Rule-set)
+
+Để loại bỏ tính ngẫu nhiên vô căn cứ, cặp ô SHIFT được lựa chọn dựa trên trạng thái thế cờ:
+1. **Shift Giao Tranh / Địch Thủ (Cross-Side Shift - theo hàng số):**
+   - *Điều kiện kích hoạt:* Thế cờ cân bằng / giằng co (chênh lệch lực lượng $\le 1$ điểm).
+   - *Đặc điểm:* Chọn 1 quân Trắng và 1 quân Đen có khoảng cách hàng số lớn ($\Delta \text{rank} \ge 3$, ví dụ rank 1-3 đổi với rank 6-8) để phá vỡ bế tắc chiến thuật.
+2. **Shift Nội Bộ / Đồng Minh (Intra-Side Shift - theo hàng chữ/cột):**
+   - *Điều kiện kích hoạt:* Một bên đang bị dẫn trước / ép sân (chênh lệch lực lượng $\ge 2$ điểm).
+   - *Đặc điểm:* Chọn 2 quân cùng một phe có khoảng cách hàng số hẹp ($\Delta \text{rank} \le 1$) và khoảng cách cột chữ rộng ($\Delta \text{file} \ge 2$, ví dụ cánh Hậu sang cánh Vua) giúp bên yếu thế tái cơ cấu phòng tuyến cánh.
+3. **Độ ưu tiên quân cờ:** Luôn ưu tiên quân tại các cột trung tâm ($c, d, e, f$) và quân nhẹ (Mã, Tượng) để người chơi có thể quan sát bàn cờ và tính toán trước 100%.
 
 ## Danh mục các loại SHIFT
 
@@ -78,7 +99,7 @@ Mỗi ván đấu chỉ chọn **duy nhất 1 loại SHIFT** (ngẫu nhiên ho�
 
 | Loại SHIFT | Biểu tượng | Mô tả cơ chế | Tác động chiến thuật & Quy tắc biến dạng | Luật bảo vệ & An toàn |
 | --- | :---: | --- | --- | --- |
-| **Đổi chỗ (Swap)** *(Mặc định)* | `⇄` | Hai ô cờ được đánh dấu sẽ tráo đổi vị trí quân cho nhau khi đến chu kỳ (báo trước 2 nước). | **Biến dạng Mã ↔ Tượng:** Khi hoán đổi, nếu dính phải Mã hoặc Tượng đổi sang màu ô đối lập, quân đó sẽ tự chuyển hóa: Mã ↔ Tượng. | Không tráo Vua và Tốt; tự động bỏ qua nếu tạo ra thế chiếu bất hợp lệ. |
+| **Đổi chỗ (Swap)** *(Mặc định)* | `⇄` | Hai ô cờ được đánh dấu sẽ tráo đổi vị trí quân cho nhau khi đến chu kỳ (báo trước 2 nước). Kích hoạt Lượt Đánh Đồng Thời ở nước 20. | **Biến dạng Mã ↔ Tượng:** Khi hoán đổi, nếu dính phải Mã hoặc Tượng đổi sang màu ô đối lập, quân đó sẽ tự chuyển hóa: Mã ↔ Tượng. | Không tráo Vua và Tốt; tự động bỏ qua nếu tạo ra thế chiếu bất hợp lệ. |
 | **Dịch quân (Slide)** | `→` | Một quân cờ tự động trượt sang ô trống được liên kết trong cặp đánh dấu khi đến nhịp. | Mở đường đột kích bất ngờ cho Xe và Hậu mà không tốn lượt đi chính của người chơi. | Chỉ kích hoạt khi đúng 1 trong 2 ô có quân; Vua không bị dịch chuyển. |
 | **Đảo phe (Turn Hijack)** | `🎭` | Xuất hiện **đúng 1 lần duy nhất** trước nước thứ 30. Khi kích hoạt, người chơi giành quyền điều khiển quân của đối thủ trong **đúng 1 lượt**. | **Xoay 3D tức thì:** Bàn cờ tự động xoay 180° sang góc nhìn đối phương. Dùng 1 nước để phá thế phối hợp, dời quân chắn hoặc phá vỡ cấu trúc tốt của địch. | **Chống chiếu bí oan:** Không được hiến Vua đối phương. Mọi nước đi trong lượt này **không được phép tạo thế chiếu tướng ngay sau shift** (vô hiệu hóa chiếu tướng tức thì). Sau 1 lượt, bàn cờ xoay trở lại bình thường. |
 

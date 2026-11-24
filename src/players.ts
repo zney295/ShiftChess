@@ -9,10 +9,22 @@ const pieceTypes = ["q", "r", "b", "n", "p", "k"] as const;
 export function drawPlayers(current: Match, side: Color, over: boolean, t: (key: CopyKey) => string) {
   const remaining = { w: { ...startingPieces }, b: { ...startingPieces } };
   const material = { w: 0, b: 0 };
-  // A SHIFT changes squares only. SAN promotions account for pieces added since the initial board.
+  // Account for promotions, simultaneous move pairs, and clashes.
   let moveSide: Color = "w";
   for (const entry of current.log) {
     if (entry === "SHIFT" || entry === "shift-skipped") continue;
+    if (entry.startsWith("CLASH:")) continue;
+    if (entry.includes(" | ")) {
+      const [whiteSan, blackSan] = entry.split(" | ");
+      for (const [san, c] of [[whiteSan, "w"], [blackSan, "b"]] as const) {
+        const promoted = san.match(/=([QRBN])/)?.[1].toLowerCase() as PieceSymbol | undefined;
+        if (promoted) {
+          remaining[c].p--;
+          remaining[c][promoted]++;
+        }
+      }
+      continue;
+    }
     const promoted = entry.match(/=([QRBN])/)?.[1].toLowerCase() as PieceSymbol | undefined;
     if (promoted) {
       remaining[moveSide].p--;

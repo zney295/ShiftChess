@@ -1,5 +1,5 @@
-import type { Move } from "chess.js";
-import type { Match } from "./rules";
+import type { Color, Move } from "chess.js";
+import { fenForColor, type Match } from "./rules";
 import type { Difficulty } from "./bot";
 
 export type MoveChoice = Pick<Move, "from" | "to" | "promotion">;
@@ -28,14 +28,20 @@ export class BotPlayer {
     } catch {}
   }
 
-  request(match: Match, difficulty: Difficulty, onMove: (move?: MoveChoice) => void) {
+  request(
+    match: Match,
+    difficulty: Difficulty,
+    onMove: (move?: MoveChoice) => void,
+    color?: Color,
+  ) {
     this.warm();
     const requestId = ++this.requestId;
     this.thinking = true;
+    const side = color ?? match.chess.turn();
     const finish = (move?: MoveChoice) => {
       if (requestId !== this.requestId || !this.thinking) return;
       this.thinking = false;
-      onMove(move ?? match.chess.moves({ verbose: true })[0]);
+      onMove(move ?? match.legalMovesFor(side)[0]);
     };
     const worker = this.worker;
     if (!worker) return finish();
@@ -45,6 +51,10 @@ export class BotPlayer {
       if (this.worker === worker) this.worker = undefined;
       finish();
     };
-    worker.postMessage({ state: match.snapshot(), difficulty });
+    const state = match.snapshot();
+    if (color && color !== match.chess.turn()) {
+      state.fen = fenForColor(state.fen, color);
+    }
+    worker.postMessage({ state, difficulty });
   }
 }
