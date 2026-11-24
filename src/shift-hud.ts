@@ -17,18 +17,19 @@ export function drawShift(
   panel.dataset.phase = beforeShift ? "active" : pending && !over ? "pending" : "idle";
   event.replaceChildren();
   document.getElementById("shift-heading")!.textContent = "SHIFT · " + t(effect);
-  const cycle = timing === "periodic" ? 6 : 24;
+  const cycle = timing === "periodic" ? 10 : 24;
   const until = pending ? pending.at - plies : timing === "periodic" ? cycle - plies % cycle : cycle - plies;
-  const charged = Math.floor(6 * (cycle - until) / cycle);
-  const progress = over ? 0 : beforeShift ? 6 : Math.min(6, Math.max(0, charged));
+  const pips = document.getElementById("shift-pips")!;
+  const totalPips = pips.children.length;
+  const charged = Math.floor(totalPips * (cycle - until) / cycle);
+  const progress = over ? 0 : beforeShift ? totalPips : Math.min(totalPips, Math.max(0, charged));
   const countdown = over ? t("finished") : beforeShift ? t("shifting")
     : until <= 0 ? t("lateDone") : t(pending ? (until === 1 ? "oneMove" : "manyMoves") : "nextShift")
       .replace("{n}", String(until));
-  const pips = document.getElementById("shift-pips")!;
   pips.setAttribute("aria-valuenow", String(progress));
   pips.setAttribute("aria-valuetext", countdown);
   document.getElementById("shift-info")!.title = countdown;
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < totalPips; i++) {
     const pip = pips.children[i];
     pip.classList.toggle("filled", i < progress);
     pip.classList.toggle("next", i === progress && Boolean(pending) && !over);

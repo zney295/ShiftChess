@@ -43,7 +43,7 @@ export const template = `
         <div class="start-shift-showcase" aria-hidden="true">
           <div class="showcase-top">
             <span class="showcase-badge">SHIFT · MECHANIC</span>
-            <span class="showcase-cycle">CYCLE: 6 TURNS</span>
+            <span class="showcase-cycle">CYCLE: 10 MOVES</span>
           </div>
           <div class="showcase-board">
             <div class="showcase-tile tile-a">
@@ -207,7 +207,7 @@ export const template = `
     <div class="player-hud">
       <section class="hud-panel event shift-widget" data-label="event">
         <button id="shift-info" type="button" data-label="sharedShift" aria-haspopup="dialog" aria-controls="shift-rules-dialog"><span class="shift-symbol" aria-hidden="true">⇄</span><span id="shift-heading"></span><span class="info-symbol" aria-hidden="true">?</span></button>
-        <div id="shift-pips" class="shift-pips" role="progressbar" aria-label="SHIFT" aria-valuemin="0" aria-valuemax="6" aria-valuenow="0"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div id="shift-pips" class="shift-pips" role="progressbar" aria-label="SHIFT" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         <p id="event" aria-live="polite"></p>
       </section>
       <nav class="board-tools" data-label="tools">

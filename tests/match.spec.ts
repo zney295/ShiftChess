@@ -21,11 +21,11 @@ test("two players see a capture, a countdown, and a SHIFT in the library", async
   await page.getByRole("button", { name: "Bắt đầu", exact: true }).click();
   await page.locator("#local-mode").click();
   await expect(page.locator("#briefing-badge-map")).toHaveText("Thư viện");
-  await expect(page.locator("#briefing-badge-timing")).toContainText("Định kỳ mỗi 3 vòng");
+  await expect(page.locator("#briefing-badge-timing")).toContainText("Định kỳ mỗi 5 lượt");
   await page.locator("#accept-shift").click();
   await expect(page.locator("#viewport canvas")).toBeVisible();
   await expect(page.locator("#turn")).toHaveText("Lượt Trắng");
-  await expect(page.locator("#shift-pips")).toHaveAttribute("aria-valuetext", "SHIFT sau 6 nước");
+  await expect(page.locator("#shift-pips")).toHaveAttribute("aria-valuetext", "SHIFT sau 10 nước");
   await expect(page.locator("#shift-pips .filled")).toHaveCount(0);
   const move = async (from: string, to: string, next: string) => {
     await clickMove(page, from, to);
@@ -38,12 +38,16 @@ test("two players see a capture, a countdown, and a SHIFT in the library", async
   await expect(page.locator("#captured-white span")).toHaveCount(1);
   await expect(page.locator("#advantage-white")).toHaveText("+1");
   await move("g8", "f6", "Lượt Trắng");
+  await move("b1", "c3", "Lượt Đen");
+  await move("f6", "d5", "Lượt Trắng");
+  await move("c3", "d5", "Lượt Đen");
+  await move("d8", "d5", "Lượt Trắng");
   await expect(page.locator("#event")).toContainText("a8 ↔ b8");
   await expect(page.locator("#event .pair")).toHaveAttribute("data-pair", "A");
   await expect(page.locator(".event")).toHaveAttribute("data-phase", "pending");
   await expect(page.locator("#event")).toContainText("Còn 2 nước");
-  await expect(page.locator("#shift-pips")).toHaveAttribute("aria-valuenow", "4");
-  await expect(page.locator("#shift-pips .filled")).toHaveCount(4);
+  await expect(page.locator("#shift-pips")).toHaveAttribute("aria-valuenow", "8");
+  await expect(page.locator("#shift-pips .filled")).toHaveCount(8);
   await expect(page.locator("#shift-pips .next")).toHaveCount(1);
   await switchLanguage(page, "en");
   await expect(page.locator("#event")).toContainText("2 moves left");
@@ -51,7 +55,7 @@ test("two players see a capture, a countdown, and a SHIFT in the library", async
   await page.screenshot({ path: testInfo.outputPath("library.png") });
   await move("g1", "f3", "Lượt Đen");
   await expect(page.locator("#event")).toContainText("Còn 1 nước");
-  await expect(page.locator("#shift-pips .filled")).toHaveCount(5);
+  await expect(page.locator("#shift-pips .filled")).toHaveCount(9);
   await move("b8", "c6", "Lượt Trắng");
   await expect(page.locator("#event")).toContainText("SHIFT đã đổi vị trí.");
   await expect(page.locator("#shift-pips .filled")).toHaveCount(0);

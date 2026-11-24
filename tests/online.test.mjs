@@ -134,6 +134,10 @@ test("private room shares rules, rejects wrong turns, resumes and rematches", as
       [b, "d7", "d5", 1],
       [a, "e4", "d5", 2],
       [b, "g8", "f6", 3],
+      [a, "b1", "c3", 4],
+      [b, "f6", "d5", 5],
+      [a, "c3", "d5", 6],
+      [b, "d8", "d5", 7],
     ]) {
       client.send({ type: "move", from, to, revision });
       const x = await a.next((m) => m.room?.revision === revision + 1),
@@ -150,7 +154,7 @@ test("private room shares rules, rejects wrong turns, resumes and rematches", as
     await resumed.next((m) => m.type === "session");
     assert.equal(
       (await resumed.next((m) => m.type === "room")).room.revision,
-      4,
+      8,
     );
     resumed.send({ type: "resign" });
     await resumed.next((m) => m.room?.phase === "ended");

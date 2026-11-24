@@ -119,7 +119,7 @@ export class Match {
 
   private schedule(): Shift | null {
     const at = this.plies + 2;
-    const due = this.mode === "periodic" ? at % 6 === 0 : at === 24;
+    const due = this.mode === "periodic" ? at % 10 === 0 : at === 24;
     if (!due) return null;
     const candidates = pairsFor(this.chess, this.effect);
     if (!candidates.length) return null;
@@ -138,7 +138,7 @@ export class Match {
   private positionKey(): string {
     const position = this.chess.fen().split(" ").slice(0, 4).join(" ");
     const phase =
-      this.mode === "periodic" ? this.plies % 6 : Math.max(0, 24 - this.plies);
+      this.mode === "periodic" ? this.plies % 10 : Math.max(0, 24 - this.plies);
     return JSON.stringify([position, phase, this.pending?.pairs ?? []]);
   }
 

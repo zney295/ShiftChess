@@ -10,12 +10,16 @@ test("periodic SHIFT announces fixed squares one round in advance", () => {
     ["d7", "d5"],
     ["e4", "d5"],
     ["g8", "f6"],
+    ["b1", "c3"],
+    ["f6", "d5"],
+    ["c3", "d5"],
+    ["d8", "d5"],
   ]) {
     match.play(from, to);
     match.settle();
   }
   const announced = match.pending;
-  assert.equal(announced.at, 6);
+  assert.equal(announced.at, 10);
   assert.deepEqual(announced.pairs, [["a8", "b8"]]);
   match.play("g1", "f3");
   match.settle();
